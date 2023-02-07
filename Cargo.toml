@@ -1,0 +1,76 @@
+[package]
+name = "rust_circuit"
+version = "0.4.3"
+edition = "2021"
+
+[package.metadata.maturin]
+name = "rust_circuit._rust"
+[lib]
+name = "rust_circuit"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "print_exception_stubs"
+[[bin]]
+name = "to_profile"
+
+[dependencies]
+pyo3.workspace = true
+anyhow = { version = "1.0.60", features = ["backtrace"] }
+mimalloc = { version = "*", default-features = false }
+
+rr_util = {path = "rr_util"}
+circuit_base = {path = "circuit_base"}
+circuit_rewrites = {path = "circuit_rewrites"}
+get_update_node = {path = "get_update_node"}
+nb_operations = {path = "nb_operations"}
+
+smallvec = { version = "1.10.0", features = ["union"] }
+itertools = "0.10.3"
+indexmap = "1.9.2"
+rustc-hash = "1.1.0"
+
+[dependencies.uuid]
+version = "1.1.2"
+features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
+[dev-dependencies]
+rand = {version = "0.8.5", features = ["small_rng"]}
+criterion = {version="0.4.0", default-features=false, features=["cargo_bench_support", "rayon"]}
+
+[[bench]]
+name = "benches"
+harness = false
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+debug = true
+
+[profile.release-lto]
+inherits = "release"
+lto = true
+
+# useful for maturin build --features extension-module --profile py-dev (just a separate target directory effectively
+[profile.py-dev]
+inherits = "dev"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+static-z3 = ["rr_util/static-z3", "circuit_rewrites/static-z3"]
+
+# default = ["extension-module"]
+default = []
+
+[workspace]
+members = ["circuit_base","get_update_node","rr_util","circuit_rewrites","nb_operations"]
+
+[workspace.dependencies]
+pyo3 = { features=["num-bigint", "multiple-pymethods", "anyhow", "macros"], git = "https://github.com/redwoodresearch/pyo3" }

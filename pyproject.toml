@@ -1,0 +1,13 @@
+[project]
+name = "rust_circuit"
+dependencies = ["torch","attrs","cattrs","blake3","numpy","msgpack"]
+
+[build-system]
+requires = ["maturin>=0.13,<0.14"]
+build-backend = "maturin"
+
+[tool.black]
+line-length = 120
+
+[tool.maturin]
+python-source = "python"
