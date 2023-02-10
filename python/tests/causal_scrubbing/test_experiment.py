@@ -3,7 +3,6 @@ from typing import Callable, Optional
 import pytest
 import torch
 
-from interp.tools.indexer import TORCH_INDEXER as I
 from rust_circuit import (
     Add,
     Array,
@@ -30,6 +29,7 @@ from rust_circuit.causal_scrubbing.hypothesis import (
     corr_root_matcher,
 )
 from rust_circuit.causal_scrubbing.testing_utils import IntDataset, loss_fn
+from rust_circuit.indexer import INDEXER as I
 
 label_cond = FS(lambda d: d.labels.value)
 

@@ -36,7 +36,7 @@ bit-iter = "1.1.1"
 once_cell = "1.14.0"
 
 [build-dependencies]
-pyo3-build-config = {git = "https://github.com/redwoodresearch/pyo3"}
+pyo3-build-config.workspace = true
 
 [dependencies.uuid]
 version = "1.1.2"

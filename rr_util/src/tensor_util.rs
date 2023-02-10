@@ -476,29 +476,76 @@ impl TensorAxisIndex {
         start: None,
         stop: None,
     });
-    /// untested
+
+    pub fn tensor_canon(tensor: &IndexTensor) -> Self {
+        pycall!(PY_UTILS.canon_index_tensor, (tensor,))
+    }
+
+    pub fn indices_contiguous_uslice(indices: &Vec<TensorAxisIndex>) -> Option<USlice> {
+        if let Some(mut containings) = indices
+            .iter()
+            .map(USlice::containing_uslice)
+            .collect::<Option<Vec<_>>>()
+        {
+            containings.sort_by(|a, b| a.start.cmp(&b.start));
+            let mut result = containings[0].clone();
+            for c in &containings[1..] {
+                if c.start > result.stop {
+                    return None;
+                }
+                result.stop = max(result.stop, c.stop)
+            }
+            return Some(result);
+        }
+        None
+    }
+
+    // assumes indices canonicalized
+    pub fn indices_union_and_rebased(
+        indices: &Vec<TensorAxisIndex>,
+        l: usize,
+        device_dtype: TorchDeviceDtype,
+    ) -> (TensorAxisIndex, Vec<TensorAxisIndex>) {
+        if let Some(contiguous) = TensorAxisIndex::indices_contiguous_uslice(indices) {
+            (
+                TensorAxisIndex::Slice(contiguous.into()),
+                indices
+                    .iter()
+                    .map(|x| x.shrink_base_uslice(&contiguous))
+                    .collect(),
+            )
+        } else {
+            pycall!(
+                PY_UTILS.index_union_rebase,
+                (indices.clone(), l, device_dtype.device.clone())
+            )
+        }
+    }
+
+    // assumes self canonicalized
     pub fn shrink_base_uslice(&self, uslice: &USlice) -> Self {
         match self {
             TensorAxisIndex::Single(single) => {
-                assert!(*single >= 0);
-                assert!((single + uslice.start as i64) < uslice.stop as i64);
                 TensorAxisIndex::Single(single - uslice.start as i64)
             }
-            TensorAxisIndex::Slice(slice) => {
-                assert!(
-                    slice.stop.is_some()
-                        && slice.stop.unwrap() >= 0
-                        && slice.start.unwrap_or(0) >= 0
-                );
-                let start = Some(slice.start.unwrap_or(0) - uslice.start as i64);
-                let stop = Some(slice.stop.unwrap() - uslice.start as i64);
-                TensorAxisIndex::Slice(Slice { start, stop })
-            }
+            TensorAxisIndex::Slice(slice) => TensorAxisIndex::Slice(Slice {
+                start: Some(slice.start.unwrap() - uslice.start as i64),
+                stop: Some(slice.stop.unwrap() - uslice.start as i64),
+            }),
             TensorAxisIndex::Tensor(_tensor) => {
                 unimplemented!();
             }
         }
     }
+
+    pub fn canonicalize(&self, l: usize) -> Self {
+        match self {
+            TensorAxisIndex::Single(i) => TensorAxisIndex::Single((*i + l as i64) % l as i64),
+            TensorAxisIndex::Tensor(t) => TensorAxisIndex::tensor_canon(t),
+            TensorAxisIndex::Slice(sl) => TensorAxisIndex::Slice(sl.canonicalize(l)),
+        }
+    }
+
     pub fn new_plain_slice(start: usize, stop: usize) -> Self {
         TensorAxisIndex::Slice(Slice {
             start: Some(start as i64),
@@ -507,10 +554,10 @@ impl TensorAxisIndex {
     }
 
     pub fn is_identity(&self, l: usize) -> bool {
-        if let TensorAxisIndex::Slice(slice) = self {
-            return slice.size(l) == l;
+        match self {
+            TensorAxisIndex::Slice(s) => s.is_identity(l),
+            _ => false, // dont bother to check tensor, if you want that canon first
         }
-        false
     }
 
     pub fn new_tensor_randint_seeded(
@@ -638,11 +685,7 @@ impl TensorIndex {
     }
 
     pub fn is_identity(&self, shape: &Shape) -> bool {
-        zip(&self.0, shape).all(|(idx, &l)| match idx {
-            TensorAxisIndex::Single(_i) => false,
-            TensorAxisIndex::Tensor(_t) => false, // dont bother to check tensor, if you want that canon first
-            TensorAxisIndex::Slice(sl) => sl.is_identity(l),
-        })
+        zip(&self.0, shape).all(|(idx, &l)| idx.is_identity(l))
     }
 
     pub fn validate(&self, shape: &Shape) -> Result<()> {
@@ -691,11 +734,7 @@ impl TensorIndex {
         self.validate(shape).expect("invalid tensor index");
         TensorIndex(
             zip(&self.0, shape)
-                .map(|(idx, &l)| match idx {
-                    TensorAxisIndex::Single(i) => TensorAxisIndex::Single((*i + l as i64) % l as i64),
-                    TensorAxisIndex::Tensor(t) => TensorAxisIndex::Tensor(t.clone()), // not bothering to canon tensor for now
-                    TensorAxisIndex::Slice(sl) => TensorAxisIndex::Slice(sl.canonicalize(l)),
-                })
+                .map(|(idx, &l)| idx.canonicalize(l))
                 .collect(),
         )
     }

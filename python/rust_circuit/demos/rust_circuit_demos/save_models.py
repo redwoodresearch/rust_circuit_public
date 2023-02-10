@@ -4,8 +4,8 @@ import os
 from typing import Optional, Sequence, Tuple
 
 import rust_circuit as rc
-from interp.circuit.testing.notebook import NotebookInTesting
 from interp.model.model_loading import load_model_info, load_model_mem_cached
+from rust_circuit.demos.notebook_testing import NotebookInTesting
 from rust_circuit.jax_to_module import get_bound_model
 from rust_circuit.module_library import load_transformer_model_string
 

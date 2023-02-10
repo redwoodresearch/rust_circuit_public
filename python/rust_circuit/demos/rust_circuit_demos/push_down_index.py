@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from interp.tools.indexer import TORCH_INDEXER as I
 from rust_circuit import Index, Matcher, Parser, PrintOptions, default_index_traversal, push_down_index, restrict
+from rust_circuit.indexer import INDEXER as I
 
 # %%
 

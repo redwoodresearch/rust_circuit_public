@@ -1666,11 +1666,9 @@ pub fn visit_circuit_with_parents<F>(circuit: CircuitRc, mut f: F)
 where
     F: FnMut(CircuitRc, &Vec<CircuitRc>),
 {
-    let mut toposorted = toposort_circuit(circuit);
-    toposorted.reverse(); // its children first by default
-
     let mut parents: HashMap<CircuitRc, Vec<CircuitRc>> = HashMap::default();
-    for (_i, sub) in toposorted.into_iter().enumerate() {
+
+    for (_i, sub) in toposort_circuit(circuit).into_iter().rev().enumerate() {
         f(sub.clone(), parents.get(&sub).unwrap_or(&vec![]));
         for child in sub.children() {
             parents.entry(child).or_insert(vec![]).push(sub.clone());
@@ -1740,6 +1738,30 @@ where
     F: FnMut((circuit, CircuitRc)) -> Result<()>,
 {
     visit_circuit_non_free(circuit, f, true)
+}
+
+pub fn visit_circuits_stoppable<F>(circuits: &[CircuitRc], f: F)
+where
+    F: FnMut(CircuitRc) -> bool,
+{
+    let mut f = f;
+    let mut seen: HashSet<HashBytes> = HashSet::default();
+
+    fn recurse<F>(circ: CircuitRc, seen: &mut HashSet<HashBytes>, f: &mut F)
+    where
+        F: FnMut(CircuitRc) -> bool,
+    {
+        if seen.insert(circ.info().hash) {
+            if f(circ.clone()) {
+                return;
+            }
+
+            circ.children().for_each(|c| recurse(c, seen, f))
+        }
+    }
+    for circuit in circuits {
+        recurse(circuit.clone(), &mut seen, &mut f)
+    }
 }
 
 // TODO: maybe this already exists?

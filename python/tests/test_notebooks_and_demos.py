@@ -6,7 +6,7 @@ research or documentation) any more, you should delete its test from here.
 """
 import pytest
 
-from interp.circuit.testing.notebook import NotebookInTesting
+from rust_circuit.demos.notebook_testing import NotebookInTesting
 
 
 def test_causal_scrubbing_paren_balancer():

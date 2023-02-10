@@ -496,7 +496,11 @@ pub fn index_fuse(index: &Index) -> Option<Index> {
     index.node().as_index().and_then(|inner| {
         Some(Index::new(
             inner.node().clone(),
-            compose(&index.index, &inner.index)?,
+            compose(
+                &index.index,
+                &inner.index.canonicalize(inner.node().shape()),
+            )
+            .unwrap(),
             index.info().name.map(|n| {
                 if n.ends_with(" idx idx") {
                     n.strip_suffix(" idx").unwrap().into()
@@ -1255,7 +1259,7 @@ pub fn axis_index_split_sections_for_concat(
 pub fn push_down_index_raw(
     node: &Index,
     allow_partial_pushdown: bool,
-    mut call_on_sub: impl FnMut(usize, Index) -> Result<CircuitRc>,
+    call_on_sub: &mut dyn FnMut(usize, Index) -> Result<CircuitRc>,
     suffix: Option<String>,
 ) -> Result<CircuitRc> {
     let mut on_sub = |child_idx,
@@ -1735,13 +1739,13 @@ pub fn push_down_index_once(
     push_down_index_raw(
         &node,
         allow_partial_pushdown.unwrap_or(false),
-        |_, x| Ok(x.rc()),
+        &mut |_, x| Ok(x.rc()),
         suffix,
     )
 }
 
 pub fn push_down_index_op(node: &Index) -> Option<CircuitRc> {
-    push_down_index_raw(node, true, |_, x| Ok(x.rc()), None).ok()
+    push_down_index_raw(node, true, &mut |_, x| Ok(x.rc()), None).ok()
 }
 
 #[pyfunction]

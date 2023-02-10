@@ -54,7 +54,7 @@ pub fn push_down_index(
         push_down_index_raw(
             &index,
             allow_partial_pushdown,
-            |i, new_index| push_down_rec(new_index, traversal_per_child[i].clone()),
+            &mut |i, new_index| push_down_rec(new_index, traversal_per_child[i].clone()),
             suffix.clone(),
         )
     }

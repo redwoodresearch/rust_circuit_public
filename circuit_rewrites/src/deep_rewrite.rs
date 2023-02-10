@@ -2,17 +2,20 @@ use std::simd::{u64x8, u8x8, SimdPartialEq};
 
 use anyhow::{bail, Result};
 use circuit_base::{
-    deep_map_op_context, deep_map_preorder_unwrap, deep_map_unwrap, on_circuit_names, prelude::*,
-    visit_circuit_unwrap, Add, Index,
+    circuit_utils::deep_replace_parents_fix, deep_map_op_context, deep_map_preorder_unwrap,
+    deep_map_unwrap, get_compatible_dtype, on_circuit_names, prelude::*, visit_circuit_unwrap, Add,
+    Index,
 };
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use macro_rules_attribute::apply;
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use rr_util::{
-    python_error_exception, timed, timed_value,
-    util::{apply_fn_until_none, apply_fn_until_same, mapping_until_end, AsOp, HashBytes},
+    python_error_exception,
+    tensor_util::{TensorAxisIndex, TensorIndex},
+    timed, timed_value,
+    util::{apply_fn_until_same, mapping_until_end, transpose, AsOp, HashBytes},
 };
 use rustc_hash::FxHashMap as HashMap;
 use thiserror::Error;
@@ -554,23 +557,75 @@ where
     fully_simplify(circ, opt_context, &f)
 }
 
-#[pyfunction] // maybe remove
+#[pyfunction]
 pub fn deep_push_down_index_raw(circ: CircuitRc, min_size: Option<usize>) -> CircuitRc {
-    deep_map_preorder_unwrap(circ, |circ| {
-        if min_size.is_none()
-            || circ
-                .children()
-                .chain(std::iter::once(circ.clone()))
-                .any(|z| z.info().numel() >= BigUint::from(min_size.unwrap()))
-        {
-            (**circ).map_or_clone(&|index: &Index| {
-                let fused = apply_fn_until_none(index, index_fuse);
-                index_elim_identity(&fused)
-                    .unwrap_or_else(|| push_down_index_op(&fused).unwrap_or_else(|| fused.crc()))
-            })
-        } else {
-            circ
+    deep_replace_parents_fix(circ.clone(), |c, parents| {
+        if min_size.is_some() && c.info().numel() < BigUint::from(min_size.unwrap()) {
+            return None;
         }
+        if parents.len() < 1 || !parents.iter().all(|n| n.is_index()) {
+            return None;
+        }
+        let idxs: Vec<_> = parents
+            .iter()
+            .map(|p| p.as_index().unwrap().index.canonicalize(c.shape()))
+            .collect();
+
+        if idxs.iter().any(|ix| ix.is_identity(c.shape())) {
+            return Some(
+                izip!(idxs, parents)
+                    .map(|(ix, p)| if ix.is_identity(c.shape()) { &c } else { p }.clone())
+                    .collect(),
+            );
+        }
+
+        if parents.len() == 1 {
+            let ix = parents[0].as_index().unwrap();
+            if c.is_index() {
+                return Some(vec![index_fuse(ix).unwrap().crc()]);
+            } else {
+                push_down_index_op(ix).map_or(None, |x| Some(vec![x]))
+            };
+        }
+
+        let ddt = get_compatible_dtype(&c);
+        let (base_ix, new_ixs_t): (Vec<TensorAxisIndex>, Vec<Vec<TensorAxisIndex>>) = (0..c.rank())
+            .map(|i| {
+                let l = c.shape()[i];
+                TensorAxisIndex::indices_union_and_rebased(
+                    &idxs.iter().map(|ix| ix.0[i].clone()).collect(),
+                    l,
+                    ddt,
+                )
+            })
+            .unzip();
+        let base_ix = TensorIndex(base_ix);
+        let new_ixs = transpose(new_ixs_t, parents.len());
+
+        if base_ix.is_identity(c.shape()) {
+            return None;
+        }
+
+        let base = Index::new(c.clone(), base_ix, None);
+        let base = push_down_index_op(&base).unwrap_or_else(|| base.crc());
+
+        let out: Vec<_> = izip!(parents, new_ixs)
+            .map(|(p, ix)| {
+                let idx = TensorIndex(ix);
+                let old_idx = &p.as_index().unwrap().index;
+                let idx = if old_idx.validate(base.shape()).is_ok()
+                    && idx.0 == old_idx.canonicalize(base.shape()).0
+                {
+                    old_idx.clone()
+                } else {
+                    idx
+                };
+
+                Index::nrc(base.clone(), idx, p.info().name)
+            })
+            .collect();
+
+        Some(out)
     })
 }
 

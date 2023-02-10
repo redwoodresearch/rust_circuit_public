@@ -257,3 +257,32 @@ class OptimizingSymbolicSizeWarning(UserWarning):
 
 def random_i64():
     return int(torch.randint(-(2 ** 63), 2 ** 63 - 1, size=(), dtype=torch.long))
+
+
+def canon_index_tensor(x):
+    if torch.all(torch.diff(x) == 1):
+        return slice(int(x[0]), int(x[0]) + len(x))
+    return x
+
+
+def index_union_rebase(indices, l: int, device: str):
+    mask = torch.zeros(l, dtype=torch.bool, device=device)
+    for idx in indices:
+        mask[idx] = True
+    nonzero = torch.nonzero(mask, as_tuple=True)[0]
+    rebased = []
+    if any([isinstance(x, torch.Tensor) for x in indices]):
+        place_in_new = torch.zeros(l, dtype=torch.int64, device=device)
+        place_in_new[nonzero] = torch.arange(len(nonzero), dtype=torch.int64, device=device)
+    for idx in indices:
+        if isinstance(idx, int):
+            rebased.append(torch.nonzero(nonzero == idx, as_tuple=True)[0].item())
+        elif isinstance(idx, slice):
+            # we know everything in the slice is in nonzero, so we can find start and take then next delta elements
+            start_idx = torch.nonzero(nonzero == idx.start, as_tuple=True)[0].item()
+            rebased.append(slice(start_idx, start_idx + (idx.stop - idx.start)))
+        else:
+            rebased.append(canon_index_tensor(place_in_new[idx]))
+    nonzero = canon_index_tensor(nonzero)
+    # print(f"index_union_rebase in: {indices} l: {l} out: {nonzero} {rebased}")
+    return (nonzero, rebased)

@@ -320,7 +320,7 @@ def get_rewrite_st(setup):
     shape = st.sampled_from(options["shapes"]) if "shapes" in options else st_np.array_shapes(min_dims=1, max_dims=3)
     circuit_type_settings = {"Add": (1, add_settings)} | options.get("circuit_type_settings", {})
     probs_per_depth = [CP.kw(all=0, **{k: circuit_type_settings.get(k, 1) for k in x}) for x in probs_normalized]
-    return get_c_st(shape, probs_per_depth, max_growth_steps=10, rust=True, from_other=False)
+    return get_c_st(shape, probs_per_depth, max_growth_steps=20, rust=True, from_other=False)
 
 
 def deep_pull_concat_strip(c: rCircuit) -> rCircuit:
@@ -591,6 +591,7 @@ def raw_test_rewrite(
         assert rewritten is not None, "expected a transformation"
     else:
         hypothesis.assume(rewritten is not None, "Rewrite returned None (noop)")
+    note(rewritten.repr())
     if do_print:
         PrintOptions(tensor_index_literal=True, bijection=False).print(rewritten)
     if assert_different:

@@ -16,8 +16,6 @@ from typing import Dict, List, Tuple
 import torch
 
 import rust_circuit as rc
-from interp.circuit.testing.notebook import NotebookInTesting
-from interp.tools.indexer import TORCH_INDEXER as I
 from rust_circuit.causal_scrubbing.dataset import color_dataset
 from rust_circuit.causal_scrubbing.experiment import Experiment, ExperimentEvalSettings, ScrubbedExperiment
 from rust_circuit.causal_scrubbing.hypothesis import (
@@ -28,6 +26,8 @@ from rust_circuit.causal_scrubbing.hypothesis import (
     to_inputs,
 )
 from rust_circuit.causal_scrubbing.testing_utils import IntDataset
+from rust_circuit.demos.notebook_testing import NotebookInTesting
+from rust_circuit.indexer import INDEXER as I
 
 # %%
 # Make a dataset of xs and labels

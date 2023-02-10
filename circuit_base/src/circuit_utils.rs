@@ -1,20 +1,22 @@
 use std::{collections::BTreeSet, hash::Hash, iter::zip};
 
+use itertools::izip;
 use num_bigint::BigUint;
 use pyo3::prelude::*;
 use rr_util::{
     name::Name,
     opt_einsum::EinsumSpec,
     tensor_util::{TensorAxisIndex, TensorIndex, TorchDeviceDtype, TorchDtype},
+    IndexSet,
 };
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use crate::{
     apply_fn_cache, deep_map_op_context_preorder_stoppable, deep_map_op_pre_new_children,
-    deep_map_unwrap, visit_circuit_non_free, visit_circuit_unwrap, Add, Array, Circuit,
-    CircuitNode, CircuitNodeAutoName, CircuitRc, Concat, Conv, Cumulant, DiscreteVar, Einsum,
-    GeneralFunction, HashBytes, Index, Module, Rearrange, Scatter, SetSymbolicShape,
-    StoredCumulantVar, Tag,
+    deep_map_unwrap, visit_circuit_non_free, visit_circuit_unwrap, visit_circuits_stoppable, Add,
+    Array, Circuit, CircuitNode, CircuitNodeAutoName, CircuitRc, Concat, Conv, Cumulant,
+    DiscreteVar, Einsum, GeneralFunction, HashBytes, Index, Module, Rearrange, Scatter,
+    SetSymbolicShape, StoredCumulantVar, Tag,
 };
 
 #[pyfunction]
@@ -207,8 +209,7 @@ pub fn toposort_circuit(circuit: CircuitRc) -> Vec<CircuitRc> {
     });
     let mut ready: BTreeSet<CircuitRc> = BTreeSet::from([circuit]);
     let mut result: Vec<CircuitRc> = vec![];
-    while !ready.is_empty() {
-        let here = ready.pop_first().unwrap();
+    while let Some(here) = ready.pop_first() {
         for child in here.children() {
             num_refs.insert(child.clone(), num_refs[&child] - 1);
             if num_refs[&child] == 0 {
@@ -219,6 +220,186 @@ pub fn toposort_circuit(circuit: CircuitRc) -> Vec<CircuitRc> {
     }
     result.reverse();
     result
+}
+
+struct Parents {
+    map: HashMap<CircuitRc, Vec<CircuitRc>>,
+}
+
+impl Parents {
+    fn new() -> Self {
+        Self {
+            map: HashMap::default(),
+        }
+    }
+    fn add(&mut self, c: CircuitRc) {
+        if self.map.contains_key(&c) {
+            return;
+        }
+        for ch in c.children() {
+            self.add(ch.clone());
+            self.map.entry(ch).or_insert(vec![]).push(c.clone());
+        }
+    }
+    fn remove(&mut self, c: CircuitRc) {
+        assert!(!self.map.contains_key(&c));
+        for ch in c.children() {
+            let v = self.map.get_mut(&ch).unwrap();
+            v.swap_remove(v.iter().position(|a| *a == c).unwrap());
+            if v.len() == 0 {
+                self.map.remove(&ch);
+                self.remove(ch);
+            }
+        }
+    }
+    fn replace(&mut self, x: &CircuitRc, y: &CircuitRc) {
+        if x == y {
+            return;
+        }
+        let p = self.map.remove(&x).unwrap_or(vec![]);
+        self.map.entry(y.clone()).or_insert(vec![]).extend(p);
+        self.add(y.clone());
+        self.remove(x.clone());
+    }
+    fn get(&mut self, x: &CircuitRc) -> &Vec<CircuitRc> {
+        static EMPTY_VEC: Vec<CircuitRc> = vec![];
+        self.map.get(x).unwrap_or(&EMPTY_VEC)
+    }
+}
+
+// only supports f replacing circuits already seen (e.g. arg/parents of arg), otherwise order might be wrong
+// replacements are also visited, but nodes that are dead after replacements aren't
+// a circuit will be visited multiple times if its parents change after it's first visited
+pub fn visit_circuit_topoorder_replace<F>(circuit: CircuitRc, mut f: F) -> CircuitRc
+where
+    F: FnMut(CircuitRc) -> Option<Vec<(CircuitRc, CircuitRc)>>,
+{
+    struct Refcounts {
+        map: HashMap<CircuitRc, usize>,
+        dead: HashSet<CircuitRc>,
+    }
+
+    impl Refcounts {
+        fn new() -> Self {
+            Self {
+                map: HashMap::default(),
+                dead: HashSet::default(),
+            }
+        }
+        fn inc(&mut self, c: CircuitRc) {
+            *self.map.entry(c.clone()).or_insert(0) += 1;
+            if self.map[&c] != 1 {
+                return;
+            }
+            self.dead.remove(&c);
+            for ch in c.children() {
+                self.inc(ch.clone())
+            }
+        }
+        fn dec(&mut self, c: CircuitRc) {
+            assert!(self.map[&c] > 0);
+            *self.map.get_mut(&c).unwrap() -= 1;
+            if self.map[&c] == 0 {
+                self.map.remove(&c);
+                for ch in c.children() {
+                    self.dec(ch)
+                }
+                self.dead.insert(c);
+            }
+        }
+    }
+
+    fn toposort(queue: &mut IndexSet<CircuitRc>, circs: &Vec<CircuitRc>) {
+        let mut num_refs: HashMap<CircuitRc, usize> = HashMap::default();
+
+        visit_circuits_stoppable(&circs, |c| {
+            if queue.contains(&c) {
+                return true;
+            }
+            for ch in c.children() {
+                if !queue.contains(&ch) {
+                    *num_refs.entry(ch).or_insert(0) += 1;
+                }
+            }
+            false
+        });
+        let mut ready: BTreeSet<CircuitRc> = circs
+            .iter()
+            .filter(|x| !queue.contains(*x))
+            .cloned()
+            .collect();
+        let mut result: Vec<CircuitRc> = vec![];
+        while let Some(here) = ready.pop_first() {
+            for child in here.children() {
+                if let Some(&r) = num_refs.get(&child) {
+                    num_refs.insert(child.clone(), r - 1);
+                    if r == 1 {
+                        ready.insert(child);
+                    }
+                }
+            }
+            result.push(here)
+        }
+        queue.extend(result.into_iter().rev())
+    }
+
+    let mut queue: IndexSet<CircuitRc> = IndexSet::default();
+    let mut refcounts = Refcounts::new();
+    toposort(&mut queue, &vec![circuit.clone()]);
+    refcounts.inc(circuit.clone());
+
+    let mut replacements: HashMap<CircuitRc, CircuitRc> = HashMap::default();
+    while let Some(a) = queue.pop() {
+        if refcounts.dead.contains(&a) {
+            continue;
+        }
+        if let Some(repl) = f(a.clone()) {
+            // valid bc only replace nodes that we've already hit in toposort order and
+            // nodes are either new = can't be referenced by nodes already in queue, or existing = already in queue
+            toposort(&mut queue, &repl.iter().map(|(_, b)| b).cloned().collect());
+            for (x, y) in repl {
+                replacements.insert(x.clone(), y.clone());
+                refcounts.inc(y);
+                refcounts.dec(x);
+            }
+        }
+    }
+    let out = deep_map_op_context_preorder_stoppable(
+        circuit,
+        &|c, rs: &mut HashMap<CircuitRc, CircuitRc>| (Some(rs.remove(&c).unwrap_or(c)), false),
+        &mut replacements,
+        &mut HashMap::default(),
+    )
+    .unwrap();
+    // refcounts.dead.iter().for_each(|d| {
+    //     replacements.remove(d);
+    // });
+    // assert!(replacements.is_empty());
+    // assert!(all_children(out.clone())
+    //     .iter()
+    //     .all(|c| !refcounts.dead.contains(c)));
+    out
+}
+
+pub fn deep_replace_parents_fix<F>(circuit: CircuitRc, mut f: F) -> CircuitRc
+where
+    // (circ, parents) -> new_parents. new_parents = replacements for parents
+    F: FnMut(CircuitRc, &Vec<CircuitRc>) -> Option<Vec<CircuitRc>>,
+{
+    let mut parents = Parents::new();
+    parents.add(circuit.clone());
+    visit_circuit_topoorder_replace(circuit, |x| {
+        let p = parents.get(&x);
+        if let Some(p_new) = f(x, p) {
+            let v: Vec<_> = izip!(p.clone(), p_new).collect();
+            for (a, b) in &v[..] {
+                parents.replace(a, b)
+            }
+            Some(v)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn deep_map_pass_up<F, T>(circuit: CircuitRc, mut f: F) -> (CircuitRc, T)

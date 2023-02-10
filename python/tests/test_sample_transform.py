@@ -6,7 +6,6 @@ import pytest
 import torch
 
 import rust_circuit as rc
-from interp.tools.indexer import TORCH_INDEXER as I
 from rust_circuit import (
     Add,
     Array,
@@ -29,6 +28,7 @@ from rust_circuit import (
     multinomial,
     optimize_and_evaluate,
 )
+from rust_circuit.indexer import INDEXER as I
 
 
 def test_estim_cumulant_shape_correct(seed=23473):

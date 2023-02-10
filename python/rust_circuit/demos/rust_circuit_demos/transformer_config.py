@@ -6,7 +6,7 @@ import pytest
 
 import rust_circuit as rc
 import rust_circuit.module_library as mod_l
-from interp.tools.indexer import SLICER as S
+from rust_circuit.indexer import SLICER as S
 from rust_circuit.model_rewrites import (
     To,
     clear_block_module,

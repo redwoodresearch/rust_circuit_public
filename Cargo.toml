@@ -25,13 +25,11 @@ circuit_base = {path = "circuit_base"}
 circuit_rewrites = {path = "circuit_rewrites"}
 get_update_node = {path = "get_update_node"}
 nb_operations = {path = "nb_operations"}
+
 smallvec = { version = "1.10.0", features = ["union"] }
 itertools = "0.10.3"
 indexmap = "1.9.2"
 rustc-hash = "1.1.0"
-
-[build-dependencies]
-pyo3-build-config = {git = "https://github.com/redwoodresearch/pyo3"}
 
 [dependencies.uuid]
 version = "1.1.2"
@@ -44,6 +42,9 @@ features = [
 [dev-dependencies]
 rand = {version = "0.8.5", features = ["small_rng"]}
 criterion = {version="0.4.0", default-features=false, features=["cargo_bench_support", "rayon"]}
+
+[build-dependencies]
+pyo3-build-config.workspace = true
 
 [[bench]]
 name = "benches"
@@ -76,3 +77,7 @@ members = ["circuit_base","get_update_node","rr_util","circuit_rewrites","nb_ope
 
 [workspace.dependencies]
 pyo3 = { features=["num-bigint", "multiple-pymethods", "anyhow", "macros"], git = "https://github.com/redwoodresearch/pyo3" }
+pyo3-build-config = { git = "https://github.com/redwoodresearch/pyo3" }
+
+[profile.dev.build-override]
+opt-level = 1

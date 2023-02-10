@@ -21,10 +21,8 @@ import numpy as np
 import torch
 from torch.nn.functional import binary_cross_entropy_with_logits
 
-import interp.tools.optional as op
 import rust_circuit as rc
-from interp.circuit.testing.notebook import NotebookInTesting
-from interp.tools.indexer import TORCH_INDEXER as I
+import rust_circuit.optional as op
 from rust_circuit.algebric_rewrite import residual_rewrite, split_to_concat
 from rust_circuit.causal_scrubbing.experiment import (
     Experiment,
@@ -41,8 +39,10 @@ from rust_circuit.causal_scrubbing.hypothesis import (
     chain_excluding,
     corr_root_matcher,
 )
+from rust_circuit.indexer import INDEXER as I
 from rust_circuit.model_rewrites import To, configure_transformer
 from rust_circuit.module_library import load_model_id
+from rust_circuit.notebook_testing import NotebookInTesting
 from rust_circuit.ui.ui import circuit_graph_ui, ui_default_hidden_matcher
 
 from . import test_paren_balancer_exercises as tests

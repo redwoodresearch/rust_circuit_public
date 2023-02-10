@@ -41,6 +41,8 @@ pub struct PyUtils {
     pub optimizing_symbolic_size_warning: PyObject,
     pub maybe_dtype_to_maybe_string: PyObject,
     pub random_i64: PyObject,
+    pub index_union_rebase: PyObject,
+    pub canon_index_tensor: PyObject,
 }
 
 /// misc python utilities
@@ -95,6 +97,8 @@ pub static PY_UTILS: GILLazyPy<PyUtils> = GILLazyPy::new_py(|py| {
         optimizing_symbolic_size_warning: get("OptimizingSymbolicSizeWarning"),
         maybe_dtype_to_maybe_string: get("maybe_dtype_to_maybe_string"),
         random_i64: get("random_i64"),
+        index_union_rebase: get("index_union_rebase"),
+        canon_index_tensor: get("canon_index_tensor"),
     }
 });
 

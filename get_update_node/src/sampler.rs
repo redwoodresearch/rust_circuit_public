@@ -23,7 +23,8 @@ use rr_util::{
     py_types::{i64_to_tensor, random_torch_i64, PyShape},
     python_error_exception,
     tensor_util::{
-        Shape, Slice, TensorAxisIndex, TensorIndex, TorchDevice, TorchDeviceDtype, TorchDtype,
+        Shape, Slice, TensorAxisIndex, TensorIndex, TorchDevice, TorchDeviceDtype,
+        TorchDeviceDtypeOp, TorchDtype,
     },
     tu8v,
     util::HashBytes,
@@ -267,8 +268,9 @@ impl SampleSpecTrait for RandomSampleSpec {
             && c.node().is_leaf_constant()
         {
             evaluate(index.clone())
-                .and_then(|x| Ok(Array::try_new(x, index.info().name)?.rc()))
-                .unwrap_or(index)
+                .and_then(|x| Ok(Array::try_new(
+                    TorchDeviceDtypeOp{device: var.values().info().device_dtype.device, dtype: None}.cast_tensor(x),
+                    index.info().name)?.rc(),)).unwrap_or(index)
         } else {
             index
         };
