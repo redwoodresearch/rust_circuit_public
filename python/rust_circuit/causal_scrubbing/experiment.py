@@ -6,7 +6,7 @@ from warnings import warn
 import attrs
 import torch
 
-import interp.tools.optional as op
+import rust_circuit.optional as op
 import rust_circuit as rc
 
 from .dataset import Dataset, color_dataset
