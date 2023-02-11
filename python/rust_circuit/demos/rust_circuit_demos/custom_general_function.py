@@ -93,6 +93,7 @@ class MyCustomSigmoid(rc.GeneralFunctionSpecBase):
         return rc.GeneralFunction(circ, spec=cls(), name=name)
 
     # optionally you can implement `get_device_dtype_override`, which validates input device/dtypes and optionally returns the output device/dtype
+    # NOTE: if you do fancy stuff here, you'll need to manage dtype device upcasting! (TODO: better docs on this)
     def get_device_dtype_override(self, *device_dtypes: rc.TorchDeviceDtypeOp) -> Optional[rc.TorchDeviceDtypeOp]:
         assert device_dtypes[0].dtype in {
             "float16",
@@ -271,6 +272,10 @@ class FancyShape(rc.GeneralFunctionSpecBase):
 
     def function(self, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
         # random function with appropriate shape stuff
+        [x, y, z] = rc.upcast_tensor_device_dtypes(
+            [x, y, z]
+        )  # we need this for properly managing scalars and none-dtype in general...
+        # TODO: more docs on upcast_tensor_device_dtypes and what general functions have to do
         return torch.log_softmax(torch.einsum("... a b, c, ... -> ... b c", x, y, z), dim=-1)
 
     def get_shape_info(self, x_shape: rc.Shape, y_shape: rc.Shape, z_shape: rc.Shape) -> rc.GeneralFunctionShapeInfo:  # type: ignore[override]
@@ -299,6 +304,17 @@ x = rc.Array.randn(*batch_shape, 9, 7)
 y = rc.Array.randn(8)
 z = rc.Array.randn(*batch_shape)
 FancyShape.new(x, y, z)
+
+# %%
+
+batch_shape: Tuple[int, ...] = (1, 3, 4)
+x = rc.Array.randn(*batch_shape, 9, 7)
+y = rc.Array.randn(8)
+z = rc.Scalar(value=384.0, shape=batch_shape)
+# this would fail if we didn't upcast tensors due to float64 vs float32
+# (ok, technically einsum apparently is fine with differnet dtypes (!?), but in theory)
+_ = FancyShape.new(x, y, z).evaluate()
+
 
 # %%
 

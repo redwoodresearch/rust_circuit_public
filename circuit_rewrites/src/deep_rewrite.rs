@@ -26,8 +26,8 @@ use crate::{
     canonicalize::deep_canonicalize,
     circuit_optimizer::OptimizationContext,
     concat_rewrite::{
-        add_pull_concat, concat_drop_size_zero, concat_elim_split, concat_fuse, einsum_pull_concat,
-        generalfunction_pull_concat, index_concat_drop_unreached,
+        concat_drop_size_zero, concat_elim_split, concat_fuse, index_concat_drop_unreached,
+        pull_concat_once, pull_concat_once_raw,
     },
     diag_rewrite::{add_pull_diags, einsum_push_down_trace},
     generalfunction_rewrite::{
@@ -808,13 +808,26 @@ pub fn deep_pull_concat_messy(circuit: CircuitRc, min_size: Option<usize>) -> Ci
                 .any(|z| z.info().numel() >= BigUint::from(min_size.unwrap()))
         {
             match &**x {
-                Circuit::Add(add) => add.and_then_or_clone(add_pull_concat),
-                Circuit::GeneralFunction(func) => {
-                    func.and_then_or_clone(generalfunction_pull_concat)
-                }
-                Circuit::Einsum(einsum) => einsum.and_then_or_clone(einsum_pull_concat),
                 Circuit::Concat(concat) => concat.and_then_or_clone(concat_fuse),
-                _ => x.clone(),
+                _ => pull_concat_once_raw(x.clone()).unwrap_or(x),
+            }
+        } else {
+            x
+        }
+    })
+}
+
+#[pyfunction]
+pub fn deep_pull_concat_new(circuit: CircuitRc, min_size: Option<usize>) -> CircuitRc {
+    deep_map_unwrap(circuit, &|x: CircuitRc| {
+        if min_size.is_none()
+            || x.children()
+                .chain(std::iter::once(x.clone()))
+                .any(|z| z.info().numel() >= BigUint::from(min_size.unwrap()))
+        {
+            match &**x {
+                Circuit::Concat(concat) => concat.and_then_or_clone(concat_fuse),
+                _ => pull_concat_once(x.clone()).unwrap_or(x),
             }
         } else {
             x

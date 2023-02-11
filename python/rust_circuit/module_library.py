@@ -285,7 +285,7 @@ raw_attention_str = f"""
   'qk_with_rot.re' [{SEQ}, 2*2*{HALF_ROTARY_DIM}] Rearrange q s:2 e:2 rh -> q (s:2 e:2 rh)
     'qk_with_rot.cat' [{SEQ}, 2, 2, {HALF_ROTARY_DIM}] Concat 1
       'qk_with_rot.q_rot' Rearrange q e rh -> q 1 e rh
-        'qk_rot' [{SEQ}, 2, {HALF_ROTARY_DIM}] GeneralFunction apply_rotary_pos_emb at interp.circuit.interop_rust.generalfuncs.rotary_pos_emb:ApplyRotaryPosEmb
+        'qk_rot' [{SEQ}, 2, {HALF_ROTARY_DIM}] GeneralFunction apply_rotary_pos_emb at rust_circuit.generalfuncs.rotary_pos_emb:ApplyRotaryPosEmb
           'qk_rot.inp' Index [:, 0]
             'qk_split' [{SEQ}, 2, 2, {HALF_ROTARY_DIM}] Rearrange q (s:2 e:2 rh) -> q s:2 e:2 rh
               'qk_split.set' [{SEQ}, 2*2*{HALF_ROTARY_DIM}] SetSymbolicShape

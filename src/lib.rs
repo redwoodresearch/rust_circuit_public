@@ -47,12 +47,12 @@ fn _rust(py: Python<'_>, m: &PyModule) -> PyResult<()> {
         circuit_optimizer::{optimize_and_evaluate, optimize_and_evaluate_many},
         compiler_heuristics::deep_maybe_distribute_py,
         concat_rewrite::{
-            add_pull_concat, concat_drop_size_zero, concat_fuse, einsum_pull_concat,
-            generalfunction_pull_concat, index_concat_drop_unreached, split_to_concat,
+            concat_drop_size_zero, concat_fuse, index_concat_drop_unreached, pull_concat_once,
+            pull_concat_once_raw, split_to_concat,
         },
         deep_rewrite::{
             deep_heuristic_nest_adds, deep_pull_concat, deep_pull_concat_messy,
-            deep_push_down_index_raw,
+            deep_pull_concat_new, deep_push_down_index_raw,
         },
         diag_rewrite::{add_pull_diags, einsum_push_down_trace},
         scatter_rewrite::{
@@ -208,6 +208,11 @@ fn _rust(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(concat_merge_uniform, m)?)?;
     m.add_function(wrap_pyfunction!(generalfunction_pull_removable_axes, m)?)?;
     m.add_function(wrap_pyfunction!(
+        circuit_base::upcast_tensor_device_dtypes_py,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(circuit_base::upcast_tensor_devices_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
         circuit_rewrites::generalfunction_rewrite::generalfunction_merge_inverses,
         m
     )?)?;
@@ -314,15 +319,15 @@ fn _rust(py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flat_concat, m)?)?;
     m.add_function(wrap_pyfunction!(circuit_base::flat_concat_back, m)?)?;
     m.add_function(wrap_pyfunction!(deep_heuristic_nest_adds, m)?)?;
+    m.add_function(wrap_pyfunction!(pull_concat_once_raw, m)?)?;
+    m.add_function(wrap_pyfunction!(pull_concat_once, m)?)?;
     m.add_function(wrap_pyfunction!(concat_fuse, m)?)?;
-    m.add_function(wrap_pyfunction!(generalfunction_pull_concat, m)?)?;
     m.add_function(wrap_pyfunction!(index_concat_drop_unreached, m)?)?;
     m.add_function(wrap_pyfunction!(concat_drop_size_zero, m)?)?;
-    m.add_function(wrap_pyfunction!(einsum_pull_concat, m)?)?;
-    m.add_function(wrap_pyfunction!(add_pull_concat, m)?)?;
     m.add_function(wrap_pyfunction!(split_to_concat, m)?)?;
     m.add_function(wrap_pyfunction!(deep_push_down_index_raw, m)?)?;
     m.add_function(wrap_pyfunction!(deep_pull_concat_messy, m)?)?;
+    m.add_function(wrap_pyfunction!(deep_pull_concat_new, m)?)?;
     m.add_function(wrap_pyfunction!(deep_pull_concat, m)?)?;
     m.add_function(wrap_pyfunction!(set_named_axes_py, m)?)?;
     m.add_function(wrap_pyfunction!(propagate_named_axes, m)?)?;

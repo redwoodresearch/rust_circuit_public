@@ -30,7 +30,8 @@ use crate::{
     circuit_utils::OperatorPriority,
     new_rc_unwrap,
     prelude::*,
-    Array, CachedCircuitInfo, HashBytes, PyCircuitBase,
+    upcast_tensor_device_dtypes, upcast_tensor_devices, Array, CachedCircuitInfo, HashBytes,
+    PyCircuitBase,
 };
 
 macro_rules! gf_gen {
@@ -219,6 +220,7 @@ impl SpecTrait for GeneralFunctionSimpleSpec {
     }
 
     fn function(&self, tensors: &[Tensor]) -> Result<Tensor> {
+        let tensors = upcast_tensor_device_dtypes(tensors);
         Python::with_gil(|py| {
             Ok(self
                 .get_function()
@@ -325,6 +327,7 @@ impl SpecTrait for GeneralFunctionIndexSpec {
     }
 
     fn function(&self, tensors: &[Tensor]) -> Result<Tensor> {
+        let tensors = upcast_tensor_devices(tensors);
         Python::with_gil(|py| {
             Ok(PY_UTILS
                 .gen_index_function
@@ -858,6 +861,7 @@ impl SpecTrait for GeneralFunctionMultinomialSpec {
     }
 
     fn function(&self, tensors: &[Tensor]) -> Result<Tensor> {
+        let tensors = upcast_tensor_devices(tensors);
         Ok(sample_multinomial(
             tensors[0].clone(),
             self.shape.clone(),
@@ -979,10 +983,7 @@ impl PyModuleLocator {
     fn get_module<'py>(&self, py: Python<'py>) -> Result<&'py PyAny> {
         match self {
             PyModuleLocator::Path(path) => {
-                let rrfs_dir = py
-                    .import("interp.tools.rrfs")?
-                    .getattr("RRFS_DIR")?
-                    .extract::<String>()?;
+                let rrfs_dir = rr_util::rrfs::get_rrfs_dir();
 
                 // adapted from https://stackoverflow.com/questions/67631/how-can-i-import-a-module-dynamically-given-the-full-path
 

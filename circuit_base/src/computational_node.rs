@@ -17,14 +17,12 @@ use rr_util::{
     opt_einsum::EinsumSpec,
     py_types::{
         einops_repeat, einsum_py, make_diagonal_py, scalar_to_tensor, scalar_to_tensor_py,
-        ExtraPySelfOps, PyEinsumAxes, Tensor, PY_CIRCUIT_ITEMS, PY_UTILS,
+        ExtraPySelfOps, PyEinsumAxes, Tensor, PY_UTILS,
     },
     pycall,
     rearrange_spec::{OpSize, RearrangeSpec}, // TODO: use new rearrange spec
     sv,
-    tensor_util::{
-        broadcast_shapes, Slice, TensorAxisIndex, TensorIndex, TorchDeviceDtype, TorchDeviceDtypeOp,
-    },
+    tensor_util::{broadcast_shapes, Slice, TensorAxisIndex, TensorIndex, TorchDeviceDtypeOp},
     util::{
         cumsum, dict_to_list, {hashmap_collect_except_duplicates, AxisInt},
     },
@@ -43,7 +41,7 @@ use crate::{
     },
     new_rc_unwrap,
     prelude::*,
-    upcast_tensors_for_eval, CachedCircuitInfo, CircuitNodeSelfOnlyHash, ConstructError,
+    upcast_tensor_device_dtypes, CachedCircuitInfo, CircuitNodeSelfOnlyHash, ConstructError,
     PyCircuitBase, Scalar, Shape,
 };
 
@@ -121,7 +119,7 @@ impl CircuitNode for Einsum {
     }
 
     fn eval_tensors(&self, tensors: &[Tensor]) -> Result<Tensor> {
-        let tensors = upcast_tensors_for_eval!(self, tensors);
+        let tensors = upcast_tensor_device_dtypes(tensors);
         Python::with_gil(|py| {
             if self.in_axes.is_empty() {
                 return Ok(scalar_to_tensor_py(py, 1., sv![], Default::default())?);
@@ -668,7 +666,7 @@ impl CircuitNode for Add {
         if tensors.is_empty() {
             return Ok(scalar_to_tensor(0.0, sv!(), Default::default())?);
         }
-        let tensors = upcast_tensors_for_eval!(self, tensors);
+        let tensors = upcast_tensor_device_dtypes(tensors);
         let mut out = tensors[0].clone();
         Python::with_gil(|py| {
             for tensor in tensors[1..].iter() {
@@ -938,8 +936,7 @@ impl CircuitNodeComputeInfoImpl for Index {
                 .iter()
                 .filter_map(|x| match x {
                     TensorAxisIndex::Tensor(tensor) if !tensor.shape().is_empty() => {
-                        let mut out: TorchDeviceDtypeOp =
-                            TorchDeviceDtype::from_tensor(tensor).into();
+                        let mut out: TorchDeviceDtypeOp = tensor.device_dtype().into();
                         out.dtype = None;
                         Some(out)
                     }
@@ -982,14 +979,10 @@ impl CircuitNode for Index {
 
     fn eval_tensors(&self, tensors: &[Tensor]) -> Result<Tensor> {
         assert_eq!(tensors.len(), 1);
-        let tensors = upcast_tensors_for_eval!(self, tensors);
+        let tensors = upcast_tensor_device_dtypes(tensors);
         Python::with_gil(|py| {
-            PY_CIRCUIT_ITEMS
-                .circ_compiler_util
-                .getattr(py, "IndexUtil")
-                .unwrap()
-                .getattr(py, "apply_dimwise")
-                .unwrap()
+            PY_UTILS
+                .index_apply_dimwise
                 .call(py, (tensors[0].clone(), self.index.clone()), None)
                 .map_err(|err| err.into())
                 .map(|x| x.extract(py).unwrap())
@@ -1093,11 +1086,7 @@ impl Index {
         let broadcasted_tensor: IndexTensor = pycall!(
             atr!(
                 pycall!(
-                    atr!(
-                        atr!(PY_CIRCUIT_ITEMS.circ_compiler_util, IndexUtil, raw),
-                        just_join_indices_sync,
-                        raw
-                    ),
+                    PY_UTILS.just_join_indices_sync,
                     (
                         tensors_index.clone(),
                         Python::with_gil(|py| PyObject::from(PyTuple::new(
@@ -1109,7 +1098,7 @@ impl Index {
                         ))),
                         match &tensors_index.0[0] {
                             TensorAxisIndex::Tensor(t) => {
-                                TorchDeviceDtype::from_tensor(t).device
+                                t.device_dtype().device
                             }
                             _ => panic!(),
                         }
@@ -1291,7 +1280,7 @@ impl CircuitNode for Concat {
     }
 
     fn eval_tensors(&self, tensors: &[Tensor]) -> Result<Tensor> {
-        let tensors = upcast_tensors_for_eval!(self, tensors);
+        let tensors = upcast_tensor_device_dtypes(tensors);
         Python::with_gil(|py| {
             PY_UTILS
                 .torch
@@ -1450,13 +1439,13 @@ impl CircuitNode for Scatter {
 
     fn eval_tensors(&self, tensors: &[Tensor]) -> Result<Tensor> {
         Python::with_gil(|py| {
-            PY_CIRCUIT_ITEMS
-                .circ_compiler_util
-                .getattr(py, "ScatterFn")
-                .unwrap()
-                .call(py, (self.index.clone(), self.info().shape.clone()), None)
-                .unwrap()
-                .call(py, (tensors[0].clone(),), None)
+            PY_UTILS
+                .scatter
+                .call(
+                    py,
+                    (self.index.clone(), self.shape().clone(), tensors[0].clone()),
+                    None,
+                )
                 .map_err(|err| err.into())
                 .map(|x| x.extract(py).unwrap())
         })
@@ -1701,7 +1690,7 @@ impl CircuitNode for Conv {
     }
 
     fn eval_tensors(&self, tensors: &[Tensor]) -> Result<Tensor> {
-        let tensors = upcast_tensors_for_eval!(self, tensors);
+        let tensors = upcast_tensor_device_dtypes(tensors);
         pycall!(
             PY_UTILS.conv,
             (

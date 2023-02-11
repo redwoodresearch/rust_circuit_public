@@ -12,7 +12,7 @@ use rr_util::{
     sv,
     symbolic_size::{shape_first_symbolic_dim, SymbolicSizeProduct},
     tensor_db::{get_tensor_prefix, save_tensor},
-    tensor_util::{TorchDeviceDtype, TorchDeviceDtypeOp},
+    tensor_util::TorchDeviceDtypeOp,
 };
 use rustc_hash::FxHashMap as HashMap;
 use uuid::Uuid;
@@ -58,7 +58,7 @@ circuit_node_extra_impl!(Array, self_hash_default);
 
 impl CircuitNodeComputeInfoImpl for Array {
     fn device_dtype_extra(&self) -> Option<Vec<TorchDeviceDtypeOp>> {
-        Some(vec![TorchDeviceDtype::from_tensor(&self.value).into()])
+        Some(vec![self.value.device_dtype().into()])
     }
 }
 

@@ -2,7 +2,7 @@
 import functools
 import itertools
 import math
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union, cast
 
 import torch
 import torch.nn.functional
@@ -14,8 +14,9 @@ def check_type(x, type_v):
 
 
 def get_tensor_shape(x):
-    check_type(x, torch.Tensor)
-    return list(x.size())
+    if not isinstance(x, torch.Tensor):
+        raise TypeError(f"expected type {repr(torch.Tensor)} but got {type(x)}")
+    return x.shape, x.device, x.dtype
 
 
 dtype_from_string = {
@@ -260,6 +261,8 @@ def random_i64():
 
 
 def canon_index_tensor(x):
+    if len(x) == 0:
+        return slice(0, 0)
     if torch.all(torch.diff(x) == 1):
         return slice(int(x[0]), int(x[0]) + len(x))
     return x
@@ -286,3 +289,78 @@ def index_union_rebase(indices, l: int, device: str):
     nonzero = canon_index_tensor(nonzero)
     # print(f"index_union_rebase in: {indices} l: {l} out: {nonzero} {rebased}")
     return (nonzero, rebased)
+
+
+ISLICE = slice(None, None)
+TorchAxisIndex = Union[int, slice, torch.Tensor]
+TorchIndex = Union[Tuple[TorchAxisIndex, ...], TorchAxisIndex]
+
+
+def index_dimwise_to_numpy_style(index):
+    result: List[List[TorchAxisIndex]] = []
+    for i, idx in enumerate(index):
+        if len(result) == 0 or (
+            isinstance(idx, torch.Tensor) and len([x for x in result[-1] if isinstance(x, torch.Tensor)]) > 0
+        ):
+            result.append([ISLICE for z in index[:i] if not isinstance(z, int)])
+        result[-1].append(idx)
+    assert (
+        len(result) == len([x for x in index if isinstance(x, torch.Tensor)])
+        or len([x for x in index if isinstance(x, torch.Tensor)]) == 0
+        and len(result) == 1
+    ), (index, result)
+
+    return [tuple(x) for x in result]
+
+
+def index_apply_dimwise(tensor: torch.Tensor, index: TorchIndex):
+    if not isinstance(index, tuple):
+        index = (index,)
+    result = tensor
+    indices = index_dimwise_to_numpy_style(index)
+    for idx in indices:
+        result = result[idx]
+    return result
+
+
+def index_axis_to_tensor(x: TorchAxisIndex, l: int, device):
+    return torch.arange(l, device=device)[x]
+
+
+def shape_to_strides(shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    if shape == ():
+        return ()
+    return functools.reduce(lambda a, n: (a[0] * n,) + a, reversed(shape[1:]), cast(Tuple[int, ...], (1,)))
+
+
+def join_indices_unsync(indices: Tuple[TorchAxisIndex, ...], shape: Tuple[int, ...], device):
+    indices_tensors = [index_axis_to_tensor(x, l, device=device) for x, l in zip(indices, shape)]
+    strides = shape_to_strides(shape)
+    rank = len(indices)
+    broadcasted: List[torch.Tensor] = [
+        x[(() if len(x.shape) == 0 else (ISLICE,)) + ((None,) * (rank - (i + 1)))] * stride
+        for i, (x, stride) in enumerate(zip(indices_tensors, strides))
+    ]
+    summed = functools.reduce(lambda a, b: a + b, broadcasted[1:], broadcasted[0])
+    result = summed.flatten()
+    if all(isinstance(x, int) for x in indices):
+        return result.item()
+    return canon_index_tensor(result)
+
+
+def just_join_indices_sync(indices: Tuple[TorchAxisIndex, ...], shape: Tuple[int, ...], device) -> torch.Tensor:
+    indices_tensors = [index_axis_to_tensor(x, l, device) for x, l in zip(indices, shape)]
+    strides = shape_to_strides(shape)
+    indices_raised: List[torch.Tensor] = [x * s for x, s in zip(indices_tensors, strides)]
+    return functools.reduce(lambda a, b: a + b, indices_raised[1:], indices_raised[0])
+
+
+def scatter(idx, shape, tensor):
+    result = torch.zeros(shape, dtype=tensor.dtype, device=tensor.device)
+    if len([x for x in idx if isinstance(x, torch.Tensor)]) <= 1:
+        result[idx] = tensor
+    else:
+        raise NotImplementedError(
+            "scatter where index has multiple tensor axes that need to be applied dimwise unsupported"
+        )
+    return result

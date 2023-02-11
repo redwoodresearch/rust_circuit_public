@@ -64,7 +64,6 @@ from rust_circuit import (
     add_fuse_scalar_multiples,
     add_make_broadcasts_explicit,
     add_outer_product_broadcasts_on_top,
-    add_pull_concat,
     add_pull_diags,
     add_pull_removable_axes,
     add_pull_scatter,
@@ -103,7 +102,6 @@ from rust_circuit import (
     einsum_nest_optimize,
     einsum_of_permute_merge,
     einsum_permute_to_rearrange,
-    einsum_pull_concat,
     einsum_pull_removable_axes,
     einsum_pull_scatter,
     einsum_push_down_trace,
@@ -111,7 +109,6 @@ from rust_circuit import (
     fuse_concat_modules,
     generalfunction_evaluate_simple,
     generalfunction_merge_inverses,
-    generalfunction_pull_concat,
     generalfunction_pull_removable_axes,
     generalfunction_special_case_simplification,
     index_concat_drop_unreached,
@@ -373,10 +370,9 @@ rewrite_test_setups = [
     (add_pull_diags, ["Add", "Einsum"], {"shapes": [(4, 4, 4), (1, 4, 4), (2, 2, 2, 3)]}),
     (einsum_push_down_trace, ["Einsum"]),
     (einsum_concat_to_add, ["Einsum"]),
-    (add_pull_concat, ["Add", "Concat"]),
-    (einsum_pull_concat, ["Einsum", "Concat"]),
+    (rc.pull_concat_once, [["Add", "Einsum", "GeneralFunction"], "Concat"]),
+    (rc.pull_concat_once_raw, [["Add", "Einsum", "GeneralFunction"], "Concat"]),
     (index_concat_drop_unreached, ["Index", "Concat"]),
-    (generalfunction_pull_concat, ["GeneralFunction", "Concat"], {"from_rust": False}),
     (concat_fuse, ["Concat", "Concat"]),
     (deep_heuristic_nest_adds, ["Add", "Add"], {"assert_different": False}),
     # # TODO fails with hypothesis.Unsatisfiable
@@ -448,6 +444,7 @@ rewrite_test_setups = [
     ),
     (rearrange_fuse, ["UnaryRearrange", "UnaryRearrange"]),
     (deep_pull_concat_strip, [["Add", "Einsum", "GeneralFunction"], "Concat"], {"assert_different": False}),
+    (rc.deep_pull_concat_new, [["Add", "Einsum", "GeneralFunction"], "Concat"], {"assert_different": False}),
     (deep_pull_concat_messy, [["Add", "Einsum", "GeneralFunction"], "Concat"], {"assert_different": False}),
     (deep_canonicalize, [], {"assert_different": False}),
     (compiler_simp, [], {"assert_different": False}),
@@ -1125,14 +1122,14 @@ def test_rewrite_all_rust():
                 rConcat(rArray.randn(10), rArray.randn(10), axis=0),
                 rConcat(rArray.randn(10), rArray.randn(10), axis=0),
             ),
-            add_pull_concat,
+            rc.pull_concat_once_raw,
         ),
         (
             rAdd(
                 rConcat(rArray.randn(10), rArray.randn(10), axis=0),
                 rConcat(rArray.randn(10), rArray.randn(10), axis=0),
             ),
-            lambda x: compiler_simp(deep_push_down_index_raw(compiler_simp(op.unwrap(add_pull_concat(x))))),
+            lambda x: compiler_simp(deep_push_down_index_raw(compiler_simp(op.unwrap(rc.pull_concat_once_raw(x))))),
         ),
         (rArray(torch.randn(10, 10)), functools.partial(split_to_concat, axis=1, sections=[2, 2, 6])),
         (
@@ -1143,7 +1140,7 @@ def test_rewrite_all_rust():
     'one' [5,1] Scalar 1
     'zero' [5,4] Scalar 0"""
             ),
-            einsum_pull_concat,
+            rc.pull_concat_once_raw,
         ),
         (
             rAdd(

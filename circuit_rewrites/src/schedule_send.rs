@@ -29,7 +29,6 @@ pub struct ScheduleToSend {
     pub instructions: Vec<InstructionToSend>,
     pub constants: ::std::collections::HashMap<usize, String>,
     pub scalars: ::std::collections::HashMap<usize, String>,
-    pub dtype: String,
     pub output_circuit: (usize, Vec<usize>),
     pub split_shapes: Option<Vec<Vec<usize>>>,
     pub old_constant_hashes: Vec<(Vec<u8>, usize)>,
@@ -43,17 +42,15 @@ impl ScheduleToSend {
         let mut body: Vec<u8> = vec![];
         // dbg!(&response);
         response.into_reader().read_to_end(&mut body).unwrap();
+        let dtype = unsafe { std::mem::transmute::<u8, TorchDtype>(body[0]) };
         let body_pybytes: PyObject =
-            Python::with_gil(|py| PyByteArray::new(py, &body).clone().into());
+            Python::with_gil(|py| PyByteArray::new(py, &body[1..]).clone().into());
         let out_shape = self.output_circuit.1.clone();
         let count: usize = out_shape.iter().product();
         pycall!(
             PY_UTILS.tensor_from_bytes,
             (
-                TorchDeviceDtype {
-                    dtype: TorchDtype::try_from(self.dtype.clone()).unwrap(),
-                    device
-                },
+                TorchDeviceDtype { dtype, device },
                 out_shape,
                 body_pybytes,
                 count,
@@ -81,19 +78,11 @@ impl ScheduleToSend {
 }
 
 impl ScheduleToSend {
-    pub fn load(
-        self,
-        device: TorchDevice,
-        cache: &mut Option<TensorCacheRrfs>,
-    ) -> Result<Schedule> {
+    pub fn load(self, cache: &mut Option<TensorCacheRrfs>) -> Result<Schedule> {
         let mut result = Schedule {
             instructions: vec![],
             constants: Default::default(),
             scalars: Default::default(),
-            device_dtype: TorchDeviceDtype {
-                device,
-                dtype: TorchDtype::try_from(self.dtype.clone()).unwrap(),
-            },
             output_circuit: Some((self.output_circuit.0, Scalar::nrc(0.0, sv![], None))),
             split_shapes: self
                 .split_shapes
@@ -218,7 +207,6 @@ impl TryFrom<&Schedule> for ScheduleToSend {
                     .map(|(h, x)| (h, unwrap!(x, ScheduleConstant::Circ))), /* we checked no raw tensors above */
             )?,
             scalars: map_to_str(&x.scalars)?,
-            dtype: String::from(&x.device_dtype.dtype),
             output_circuit: (
                 x.output_circuit.clone().unwrap().0,
                 x.output_circuit

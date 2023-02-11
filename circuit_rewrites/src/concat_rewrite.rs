@@ -1,6 +1,7 @@
 use std::iter::zip;
 
 use circuit_base::{prelude::*, Add, Concat, Einsum, GeneralFunction, Index};
+use itertools::Itertools;
 use num_bigint::BigUint;
 use pyo3::prelude::*;
 use rr_util::{
@@ -9,10 +10,65 @@ use rr_util::{
 };
 use rustc_hash::FxHashMap as HashMap;
 
-use crate::algebraic_rewrite::add_make_broadcasts_explicit;
-/// this nests arbitrarily deep
+use crate::algebraic_rewrite::{
+    add_make_broadcasts_explicit, concat_elim_identity, index_elim_identity, push_down_index_raw,
+};
+
 #[pyfunction]
-pub fn einsum_pull_concat(einsum: &Einsum) -> Option<CircuitRc> {
+pub fn pull_concat_once_raw(circuit: CircuitRc) -> Option<CircuitRc> {
+    let f = &|y: Index| y.rc();
+    let name_maybe = circuit
+        .children()
+        .filter(|x| x.is_concat())
+        .map(|x| x.info().name)
+        .unique()
+        .exactly_one()
+        .ok();
+    Some(
+        match &**circuit {
+            Circuit::Add(add) => add_pull_concat(add, f),
+            Circuit::GeneralFunction(gf) => generalfunction_pull_concat(gf, f).map(|x| x.rc()),
+            Circuit::Einsum(ein) => einsum_pull_concat(ein, f),
+            _ => None,
+        }?
+        .maybe_rename(name_maybe),
+    )
+}
+
+#[pyfunction]
+pub fn pull_concat_once(circuit: CircuitRc) -> Option<CircuitRc> {
+    let f = &|x: Index| {
+        let y = index_concat_drop_unreached(&x).unwrap_or(x.clone().into());
+        let z = y
+            .as_index()
+            .and_then(index_elim_identity)
+            .unwrap_or(y.clone());
+        z.as_concat()
+            .and_then(concat_elim_identity)
+            .unwrap_or(z.clone())
+    };
+    let g =
+        &|x: Index| push_down_index_raw(&x, false, &mut |_, ix| Ok(f(ix)), None).unwrap_or(x.rc());
+    let name_maybe = circuit
+        .children()
+        .filter(|x| x.is_concat())
+        .map(|x| x.info().name)
+        .unique()
+        .exactly_one()
+        .ok();
+    Some(
+        match &**circuit {
+            Circuit::Add(add) => add_pull_concat(add, g),
+            Circuit::GeneralFunction(gf) => generalfunction_pull_concat(gf, f).map(|x| x.rc()),
+            Circuit::Einsum(ein) => einsum_pull_concat(ein, f),
+            _ => None,
+        }?
+        .maybe_rename(name_maybe),
+    )
+}
+
+/// this nests arbitrarily deep
+fn einsum_pull_concat(einsum: &Einsum, on_ix: &dyn Fn(Index) -> CircuitRc) -> Option<CircuitRc> {
     let mut did_anything = false;
     let mut int_sections: HashMap<u8, Vec<usize>> = HashMap::default();
     for (operand, ints) in einsum.args() {
@@ -47,6 +103,7 @@ pub fn einsum_pull_concat(einsum: &Einsum) -> Option<CircuitRc> {
         .partition(|i| einsum.out_axes.contains(i));
 
     fn recurse(
+        on_ix: &dyn Fn(Index) -> CircuitRc,
         concat_picks: &HashMap<u8, usize>,
         int_sections_concat_left: &[u8],
         int_sections_add: &Vec<u8>,
@@ -90,14 +147,18 @@ pub fn einsum_pull_concat(einsum: &Einsum) -> Option<CircuitRc> {
                                 })
                                 .collect(),
                         );
-                        (Index::nrc(node.clone(), index, None), ints.clone())
+                        (on_ix(Index::new(node.clone(), index, None)), ints.clone())
                     })
                     .collect();
 
                 Einsum::nrc(einsum_args, einsum.out_axes.clone(), einsum.info().name)
             })
             .collect();
-            Add::nrc(summands, None)
+            if summands.len() == 1 {
+                summands[0].clone()
+            } else {
+                Add::nrc(summands, None)
+            }
         } else {
             let (ihere, new_int_sections_concat) = int_sections_concat_left.split_first().unwrap();
             let concattands: Vec<CircuitRc> = (0..int_sections[ihere].len())
@@ -105,6 +166,7 @@ pub fn einsum_pull_concat(einsum: &Einsum) -> Option<CircuitRc> {
                     let mut new_picks = concat_picks.clone();
                     new_picks.insert(*ihere, i);
                     recurse(
+                        &on_ix,
                         &new_picks,
                         new_int_sections_concat,
                         int_sections_add,
@@ -122,6 +184,7 @@ pub fn einsum_pull_concat(einsum: &Einsum) -> Option<CircuitRc> {
     }
 
     Some(recurse(
+        &on_ix,
         &HashMap::default(),
         &int_sections_concat,
         &int_sections_add,
@@ -130,8 +193,7 @@ pub fn einsum_pull_concat(einsum: &Einsum) -> Option<CircuitRc> {
     ))
 }
 
-#[pyfunction]
-pub fn add_pull_concat(add: &Add) -> Option<CircuitRc> {
+fn add_pull_concat(add: &Add, on_ix: &dyn Fn(Index) -> CircuitRc) -> Option<CircuitRc> {
     for (child, rank_difference) in add.nodes_and_rank_differences() {
         if let Circuit::Concat(concat) = &**child {
             if concat.info().shape[concat.axis] != 1 {
@@ -140,7 +202,8 @@ pub fn add_pull_concat(add: &Add) -> Option<CircuitRc> {
                 let add_explicit = add_make_broadcasts_explicit(add)
                     .unwrap_or(add.clone())
                     .rc();
-                let concat_of_adds = split_to_concat(add_explicit, concat_axis, sections_here).rc();
+                let concat_of_adds =
+                    split_to_concat_cb(add_explicit, concat_axis, sections_here, on_ix).rc();
                 if add.info().shape[..] != concat_of_adds.info().shape[..] {
                     add.crc().printu();
                     concat_of_adds.printu();
@@ -158,8 +221,10 @@ pub fn add_pull_concat(add: &Add) -> Option<CircuitRc> {
 }
 
 // pub fn rearrange_pull_concat(rearrange: &Rearrange) -> Option<Concat> {}
-#[pyfunction]
-pub fn generalfunction_pull_concat(generalfunction: &GeneralFunction) -> Option<Concat> {
+fn generalfunction_pull_concat(
+    generalfunction: &GeneralFunction,
+    on_ix: &dyn Fn(Index) -> CircuitRc,
+) -> Option<Concat> {
     let batch_rank =
         generalfunction.info().rank() - generalfunction.num_non_batchable_output_dims as usize;
     for operand in generalfunction.children() {
@@ -179,7 +244,7 @@ pub fn generalfunction_pull_concat(generalfunction: &GeneralFunction) -> Option<
                         } else if node == operand {
                             cnode.clone()
                         } else {
-                            Index::nrc(
+                            on_ix(Index::new(
                                 node.clone(),
                                 TensorIndex::new_single(
                                     TensorAxisIndex::new_plain_slice(cur, cur + span_here),
@@ -187,7 +252,7 @@ pub fn generalfunction_pull_concat(generalfunction: &GeneralFunction) -> Option<
                                     node.info().rank(),
                                 ),
                                 None,
-                            )
+                            ))
                         }
                     })
                     .collect();
@@ -306,13 +371,17 @@ pub fn index_concat_drop_unreached(index: &Index) -> Option<CircuitRc> {
     ))
 }
 
-#[pyfunction]
-pub fn split_to_concat(circuit: CircuitRc, axis: usize, sections: Vec<usize>) -> Concat {
+pub fn split_to_concat_cb(
+    circuit: CircuitRc,
+    axis: usize,
+    sections: Vec<usize>,
+    on_ix: &dyn Fn(Index) -> CircuitRc,
+) -> Concat {
     assert!(axis < circuit.info().rank());
     let starts = cumsum(&sections);
     let operands: Vec<CircuitRc> = (0..sections.len())
         .map(|i| {
-            Index::nrc(
+            on_ix(Index::new(
                 circuit.clone(),
                 TensorIndex::new_single(
                     TensorAxisIndex::new_plain_slice(starts[i], starts[i + 1]),
@@ -320,10 +389,15 @@ pub fn split_to_concat(circuit: CircuitRc, axis: usize, sections: Vec<usize>) ->
                     circuit.info().rank(),
                 ),
                 None,
-            )
+            ))
         })
         .collect();
     Concat::new(operands, axis, None)
+}
+
+#[pyfunction]
+pub fn split_to_concat(circuit: CircuitRc, axis: usize, sections: Vec<usize>) -> Concat {
+    split_to_concat_cb(circuit, axis, sections, &mut |x| x.rc())
 }
 
 #[pyfunction]

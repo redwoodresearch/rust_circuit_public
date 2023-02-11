@@ -40,7 +40,7 @@ pub struct ExceptionWithRustContext {
 #[pymethods]
 impl ExceptionWithRustContext {
     fn __str__(&self) -> PyResult<String> {
-        Python::with_gil(|py| {
+        Python::with_gil(|_py| {
             let ctx = &self.context;
             Ok(format!("{ctx:?}\n(this is an ExceptionWithRustContext, access e.exc or upgrade to 3.11 to get the underlying exception)\n"))
         })

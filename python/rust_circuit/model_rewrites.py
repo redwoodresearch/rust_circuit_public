@@ -2,6 +2,7 @@ import re
 from enum import Enum
 from typing import Literal, Optional, Union
 
+import rust_circuit.algebric_rewrite as algrw
 import rust_circuit.optional as op
 
 from . import _rust as rc

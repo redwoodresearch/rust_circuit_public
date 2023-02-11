@@ -289,7 +289,7 @@ impl Slice {
         }
     }
 
-    fn is_identity(self, l: usize) -> bool {
+    pub fn is_identity(self, l: usize) -> bool {
         self.start_u(l) == 0 && self.stop_u(l) == l
     }
 }
@@ -523,19 +523,30 @@ impl TensorAxisIndex {
     }
 
     // assumes self canonicalized
-    pub fn shrink_base_uslice(&self, uslice: &USlice) -> Self {
+    fn offset(&self, b: i64) -> Self {
         match self {
-            TensorAxisIndex::Single(single) => {
-                TensorAxisIndex::Single(single - uslice.start as i64)
+            TensorAxisIndex::Slice(i) => {
+                let i2: USlice = Into::<Option<USlice>>::into(*i).unwrap();
+                TensorAxisIndex::Slice(
+                    USlice {
+                        start: (i2.start as i64 + b).try_into().unwrap(),
+                        stop: (i2.stop as i64 + b).try_into().unwrap(),
+                    }
+                    .into(),
+                )
             }
-            TensorAxisIndex::Slice(slice) => TensorAxisIndex::Slice(Slice {
-                start: Some(slice.start.unwrap() - uslice.start as i64),
-                stop: Some(slice.stop.unwrap() - uslice.start as i64),
+            TensorAxisIndex::Single(i) => {
+                TensorAxisIndex::Single(TryInto::<usize>::try_into(i + b).unwrap() as i64)
+            }
+            TensorAxisIndex::Tensor(t) => Python::with_gil(|py| {
+                TensorAxisIndex::Tensor(t.0.clone().py_add(py, b).unwrap().try_into().unwrap())
             }),
-            TensorAxisIndex::Tensor(_tensor) => {
-                unimplemented!();
-            }
         }
+    }
+
+    // assumes self canonicalized
+    pub fn shrink_base_uslice(&self, uslice: &USlice) -> Self {
+        self.offset(-(uslice.start as i64))
     }
 
     pub fn canonicalize(&self, l: usize) -> Self {
@@ -594,6 +605,14 @@ impl TensorAxisIndex {
                 .extract(py)
                 .unwrap()
         }))
+    }
+
+    pub fn axis_len(&self, l: usize) -> usize {
+        match self {
+            TensorAxisIndex::Single(_) => 0,
+            TensorAxisIndex::Slice(s) => s.to_uslice(l).length(),
+            TensorAxisIndex::Tensor(t) => t.0.shape[0],
+        }
     }
 }
 
@@ -1093,6 +1112,17 @@ macro_rules! string_enum{
                 }
             }
         }
+        impl TryFrom<&str> for $name{
+            type Error = Error;
+            fn try_from(value:&str)->Result<$name>{
+                match value{
+                    $(
+                        lit_or!($var $(,$lit)?)=>Ok($name::$var),
+                    )*
+                    _=>Err(anyhow!("invalid value for enum {}, {}", stringify!($name), value).into())
+                }
+            }
+        }
         impl IntoPy<PyObject> for $name {
             fn into_py(self, py: Python<'_>) -> PyObject {
                 String::from(&self).into_py(py)
@@ -1149,6 +1179,18 @@ impl TorchDtype {
     //         Self::int8 | Self::int16 | Self::int32 | Self::int64 | Self::uint8
     //     )
     // }
+    pub fn from_python(x: PyObject) -> Result<Self> {
+        Python::with_gil(|py| {
+            if !x
+                .as_ref(py)
+                .is_instance(&PY_UTILS.torch.getattr(py, "dtype")?.as_ref(py))?
+            {
+                bail!("not torch dtype")
+            }
+            let s: String = x.call_method1(py, "__str__", ())?.extract(py)?;
+            s[6..].to_owned().try_into()
+        })
+    }
 }
 
 string_enum! {
@@ -1156,7 +1198,6 @@ string_enum! {
     None,
     (
         Cpu="cpu",
-        Cuda="cuda",
         Cuda0="cuda:0",
         Cuda1="cuda:1",
         Cuda2="cuda:2",
@@ -1177,27 +1218,40 @@ string_enum! {
 }
 
 impl TorchDevice {
+    pub const CUDA: TorchDevice = TorchDevice::Cuda0;
+
     pub fn is_cuda(&self) -> bool {
-        matches!(
-            self,
-            Self::Cuda
-                | Self::Cuda0
-                | Self::Cuda1
-                | Self::Cuda2
-                | Self::Cuda3
-                | Self::Cuda4
-                | Self::Cuda5
-                | Self::Cuda6
-                | Self::Cuda7
-                | Self::Cuda8
-                | Self::Cuda9
-                | Self::Cuda10
-                | Self::Cuda11
-                | Self::Cuda12
-                | Self::Cuda13
-                | Self::Cuda14
-                | Self::Cuda15
-        )
+        matches!(self, |Self::Cuda0| Self::Cuda1
+            | Self::Cuda2
+            | Self::Cuda3
+            | Self::Cuda4
+            | Self::Cuda5
+            | Self::Cuda6
+            | Self::Cuda7
+            | Self::Cuda8
+            | Self::Cuda9
+            | Self::Cuda10
+            | Self::Cuda11
+            | Self::Cuda12
+            | Self::Cuda13
+            | Self::Cuda14
+            | Self::Cuda15)
+    }
+    pub fn from_python(x: PyObject) -> Result<Self> {
+        Python::with_gil(|py| {
+            if !x
+                .as_ref(py)
+                .is_instance(&PY_UTILS.torch.getattr(py, "device")?.as_ref(py))?
+            {
+                bail!("not torch device")
+            }
+            let s: String = x.getattr(py, "type")?.extract(py)?;
+            if &s == "cpu" {
+                return Ok(TorchDevice::Cpu);
+            }
+            let idx: usize = atr!(x, index);
+            ("cuda".to_owned() + ":" + &idx.to_string()).try_into()
+        })
     }
 }
 
@@ -1225,11 +1279,6 @@ impl TorchDeviceDtype {
     #[new]
     fn new(device: TorchDevice, dtype: TorchDtype) -> Self {
         Self { device, dtype }
-    }
-    #[staticmethod]
-    #[pyo3(name = "from_tensor")]
-    pub fn from_tensor_py(tensor: Tensor) -> Self {
-        Self::from_tensor(&tensor)
     }
 
     pub fn cast_tensor(&self, tensor: Tensor) -> Tensor {
@@ -1265,33 +1314,6 @@ impl TorchDeviceDtype {
 }
 
 impl TorchDeviceDtype {
-    pub fn from_tensor(tensor: &Tensor) -> Self {
-        Python::with_gil(|py| Self {
-            device: tensor
-                .tensor()
-                .getattr(py, "device")
-                .unwrap()
-                .getattr(py, "__str__")
-                .unwrap()
-                .call0(py)
-                .unwrap()
-                .extract(py)
-                .unwrap(),
-            dtype: tensor
-                .tensor()
-                .getattr(py, "dtype")
-                .unwrap()
-                .getattr(py, "__str__")
-                .unwrap()
-                .call0(py)
-                .unwrap()
-                .extract::<String>(py)
-                .unwrap()[6..]
-                .to_owned()
-                .try_into()
-                .unwrap(),
-        })
-    }
     pub fn size(&self) -> usize {
         match self.dtype {
             TorchDtype::float32 => 4,
@@ -1382,7 +1404,7 @@ impl TorchDeviceDtypeOp {
         result
     }
     pub fn cast_tensor(&self, tensor: Tensor) -> Tensor {
-        let concrete = self.overwrite(&TorchDeviceDtype::from_tensor(&tensor));
+        let concrete = self.overwrite(&tensor.device_dtype());
         concrete.cast_tensor(tensor)
     }
     pub fn hash(&self, hasher: &mut blake3::Hasher) {

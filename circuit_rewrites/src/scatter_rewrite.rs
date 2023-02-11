@@ -321,7 +321,7 @@ pub fn scatter_to_concat(scatter: &Scatter) -> CircuitRc {
                 Scalar::new(0.0, upper_pad_shape, None).rc(),
             ],
             i,
-            None,
+            scatter.info().name,
         );
     }
     result

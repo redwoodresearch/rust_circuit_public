@@ -19,7 +19,7 @@ use crate::{
     circuit_node_auto_impl, circuit_node_extra_impl,
     circuit_node_private::{CircuitNodeComputeInfoImpl, CircuitNodeHashItems},
     circuit_utils::OperatorPriority,
-    new_rc, upcast_tensors_for_eval, Add, CachedCircuitInfo, CircuitFlags, CircuitNode,
+    new_rc, upcast_tensor_device_dtypes, Add, CachedCircuitInfo, CircuitFlags, CircuitNode,
     CircuitNodeAutoName, CircuitRc, ConstructError, Einsum, PyCircuitBase, Rearrange, Scalar,
     TensorEvalError,
 };
@@ -95,7 +95,7 @@ impl CircuitNode for Cumulant {
                 circuit: self.crc(),
             })
         }
-        let tensors: &[Tensor] = &upcast_tensors_for_eval!(self, tensors);
+        let tensors: &[Tensor] = &upcast_tensor_device_dtypes(tensors);
 
         let out = match (&self.children_sl()[..], tensors) {
             ([], []) => scalar_to_tensor(1., sv![], Default::default())?,

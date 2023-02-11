@@ -22,7 +22,7 @@ pub fn default_index_traversal() -> IterativeMatcherRc {
     traversal = default_index_traversal(),
     suffix = None,
     allow_partial_pushdown = false,
-    elim_identity = true
+    elim_identity = true,
 ))]
 pub fn push_down_index(
     index: Index,

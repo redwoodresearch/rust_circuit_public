@@ -20,10 +20,12 @@ use crate::{
     compact_data::{TinyVecU8, U8Set},
     make_single_many,
     name::Name,
-    py_types::{einops_repeat, PyOpAtAxes, Tensor, PY_CIRCUIT_ITEMS},
+    py_types::{einops_repeat, PyOpAtAxes, Tensor, PY_CIRCUIT_ITEMS, PY_UTILS},
     python_error_exception, sv,
     symbolic_size::{SymbolicSizeProduct, SIZE_PROD_MATCH},
-    tensor_util::{check_canon_idxs, PyParseError, Shape},
+    tensor_util::{
+        check_canon_idxs, PyParseError, Shape, TensorAxisIndex, TensorIndex, TorchDevice,
+    },
     tu8v,
     util::{
         dict_to_list, filter_out_idx, is_unique, vec_map_insert, AxisInt, EinsumAxes, HashBytes,
@@ -81,6 +83,12 @@ impl From<Option<usize>> for OpSize {
                 OpSize(value as u64)
             }
         }
+    }
+}
+
+impl From<usize> for OpSize {
+    fn from(x: usize) -> Self {
+        Self::from(Some(x))
     }
 }
 
@@ -1545,7 +1553,7 @@ impl RearrangeSpec {
         assert_eq!(next_orig_axis, orig_ndim);
         assert_eq!(next_sorted_axis, sorted_axes.len());
 
-        let out = Self::new(
+        Ok(Self::new(
             input_ints.into_iter().map(|i| tu8v![i as u8]).collect(),
             output_ints.into_iter().map(|i| tu8v![i as u8]).collect(),
             std::iter::repeat(OpSize::NONE)
@@ -1554,9 +1562,100 @@ impl RearrangeSpec {
                 .chain(sorted_counts.iter().map(|x| Ok(OpSize((*x).try_into()?))))
                 .collect::<Result<_>>()?,
         )
-        .unwrap();
+        .unwrap())
+    }
 
-        Ok(out)
+    // assumes self canonicalized / applied to shape & index canonicalized
+    pub fn index_before(
+        &self,
+        index: TensorIndex,
+        device: TorchDevice,
+    ) -> Option<(TensorIndex, Self)> {
+        let (_, mid_shape) = self.shapes().unwrap();
+
+        let mut int_indices: HashMap<AxisInt, TensorAxisIndex> = HashMap::default();
+        for (ix, out_ints, l) in izip!(index.clone().0, &self.output_ints, &mid_shape) {
+            if out_ints.len() == 1 {
+                int_indices.insert(out_ints[0], ix);
+            } else if let TensorAxisIndex::Single(i) = ix && i >= 0 {
+                assert!(
+                    out_ints.iter().rfold(i as usize, |i, int| {
+                        let sz = self.int_sizes[*int as usize].unwrap();
+                        int_indices.insert(*int, TensorAxisIndex::Single((i % sz) as i64));
+                        i / sz
+                    }) == 0
+                );
+            } else if let TensorAxisIndex::Slice(sl) = ix && sl.is_identity(*l) {
+                for int in out_ints {
+                    int_indices.insert(*int, TensorAxisIndex::IDENT);
+                }
+            } else { return None }
+        }
+        let pre_index = TensorIndex(
+            self.input_ints
+                .iter()
+                .map(|ints| {
+                    if ints.len() == 0 {
+                        return TensorAxisIndex::Single(0);
+                    } else if ints.len() == 1 {
+                        return int_indices[&ints[0]].clone();
+                    }
+                    let (ixs, shp): (Vec<_>, Vec<_>) = ints
+                        .iter()
+                        .map(|i| (int_indices[i].clone(), self.int_sizes[*i as usize].unwrap()))
+                        .unzip();
+                    Python::with_gil(|py| {
+                        PY_UTILS
+                            .join_indices_unsync
+                            .call(py, (ixs, shp, device), None)
+                            .unwrap()
+                            .extract(py)
+                            .unwrap()
+                    })
+                })
+                .collect(),
+        );
+
+        let without_singles = |xs: &RInnerInts| {
+            xs.iter()
+                .cloned()
+                .filter(|i| !matches!(int_indices[i], TensorAxisIndex::Single(_)))
+                .collect::<RInnerInts>()
+        };
+        let spec = RearrangeSpec {
+            int_sizes: self
+                .int_sizes
+                .iter()
+                .enumerate()
+                .map(|(i, l)| int_indices[&(i as u8)].axis_len(l.unwrap()).into())
+                .collect(),
+            input_ints: self
+                .input_ints
+                .iter()
+                .filter_map(|xs| {
+                    let l = without_singles(xs);
+                    if l.len() == 0 {
+                        None
+                    } else {
+                        Some(l)
+                    }
+                })
+                .collect(),
+            output_ints: self
+                .output_ints
+                .iter()
+                .enumerate()
+                .filter_map(|(n, xs)| {
+                    if matches!(index.0[n], TensorAxisIndex::Single(_)) {
+                        return None;
+                    }
+                    Some(without_singles(xs))
+                })
+                .collect(),
+        };
+        // assert!(pre_index.apply_to_shape(&in_shape) == spec.shapes().unwrap().0);
+        // assert!(index.apply_to_shape(&mid_shape) == spec.shapes().unwrap().1);
+        Some((pre_index, spec))
     }
 
     /// assumes has size when 'needed' (needed if int ever appears in an inner group with >1 element)

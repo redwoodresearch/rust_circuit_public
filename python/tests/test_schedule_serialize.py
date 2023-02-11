@@ -8,7 +8,7 @@ def test_schedule_serialize():
     schedule = optimize_to_schedule(circ)
     serialized = schedule.serialize()
     print(serialized)
-    deserialized = Schedule.deserialize(serialized, "cpu")
+    deserialized = Schedule.deserialize(serialized)
     print(deserialized)
 
 

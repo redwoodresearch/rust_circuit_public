@@ -30,7 +30,6 @@ from ._rust import (
     TorchAxisIndex,
     add_elim_zeros,
     add_flatten_once,
-    add_pull_concat,
     concat_elim_identity,
     distribute,
     einsum_elim_identity,
@@ -45,6 +44,7 @@ from ._rust import (
     make_broadcast,
     new_traversal,
     permute_of_einsum_merge,
+    pull_concat_once_raw,
     push_down_index_once,
     rearrange_elim_identity,
     rearrange_fuse,
@@ -652,7 +652,7 @@ def pull_through_add_concat(c: Add) -> Circuit:
     Errors for wrong types, ImpossibleRewriteError for things that are Adds but fail
     """
 
-    out = add_pull_concat(c.cast_add())
+    out = pull_concat_once_raw(c.cast_add())
     if out is None:
         raise ImpossibleRewriteError
     return out
@@ -1357,7 +1357,7 @@ def split_reduce_concat_impl(
             to_set[idx] = True
             if is_concat:
                 assert (torch.sort(to_set, descending=True)[0] == to_set).all()
-        assert to_set.all()
+        assert to_set.all(), (to_set, to_set.shape)
     from interp.circuit.computational_node import make_index_at
 
     return [

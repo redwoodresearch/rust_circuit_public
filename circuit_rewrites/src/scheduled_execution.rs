@@ -6,7 +6,6 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use circuit_base::{
     cached_circuit_properties::max_non_leaf_size,
-    circuit_node_private::CircuitNodePrivate,
     circuit_utils::{hash_to_node_non_free, is_definitely_view_on_child, toposort_circuit},
     flat_concat,
     module::{any_children_with_symbolic_sizes, substitute_all_modules},
@@ -26,7 +25,7 @@ use rr_util::{
         PY_UTILS,
     },
     pycall, python_error_exception, sv,
-    tensor_util::{Shape, TorchDevice, TorchDeviceDtype},
+    tensor_util::{Shape, TorchDevice},
     timed, unwrap,
     util::{arc_ref_clone, with_context_failable, HashBytes},
 };
@@ -125,8 +124,6 @@ pub struct Schedule {
     // adjustment needed
     #[pyo3(get)]
     pub scalars: HashMap<usize, Scalar>,
-    #[pyo3(get)]
-    pub device_dtype: TorchDeviceDtype,
     pub output_circuit: Option<(usize, CircuitRc)>,
     pub split_shapes: Option<Vec<Shape>>,
     pub old_constant_hashes: HashMap<HashBytes, usize>,
@@ -224,7 +221,7 @@ impl Schedule {
     #[pyo3(signature=(settings = Default::default()))]
     pub fn evaluate(&self, settings: OptimizationSettings) -> Result<Tensor> {
         let timed = settings.verbose >= 1;
-        let eval = |timed| -> Result<_> {
+        let eval = || -> Result<_> {
             let result = if settings.adjust_numerical_scale {
                 evaluate_schedule_adjust_numerical_scale(self, settings)?
                     [&self.output_circuit.as_ref().unwrap().0]
@@ -232,21 +229,9 @@ impl Schedule {
             } else {
                 evaluate_schedule(self)?[&self.output_circuit.as_ref().unwrap().0].clone()
             };
-            if timed && self.device_dtype.device.is_cuda() {
-                Python::with_gil(|py| {
-                    PY_UTILS
-                        .torch
-                        .getattr(py, "cuda")
-                        .unwrap()
-                        .getattr(py, "synchronize")
-                        .unwrap()
-                        .call0(py)
-                        .unwrap()
-                });
-            }
             Ok(result)
         };
-        Ok(timed!(eval(timed)?, 10, timed))
+        Ok(timed!(eval()?, 10, timed))
     }
 
     // TODO: I think we can still panic on other non-explicitly computable stuff? (e.g., cumulants etc)
@@ -338,13 +323,9 @@ impl Schedule {
 
     #[staticmethod]
     #[pyo3(name = "deserialize")]
-    pub fn deserialize_py(
-        string: String,
-        device: TorchDevice,
-        tensor_cache: Option<TensorCacheRrfs>,
-    ) -> Result<Self> {
+    pub fn deserialize_py(string: String, tensor_cache: Option<TensorCacheRrfs>) -> Result<Self> {
         let mut tensor_cache = tensor_cache;
-        Schedule::deserialize(string, device, &mut tensor_cache)
+        Schedule::deserialize(string, &mut tensor_cache)
     }
 
     pub fn tosend(&self) -> Result<ScheduleToSend> {
@@ -352,15 +333,13 @@ impl Schedule {
     }
 
     pub fn evaluate_remote(&self, remote_url: String) -> Result<Option<Tensor>> {
-        let out = self
-            .tosend()?
-            .evaluate_remote(remote_url, self.device_dtype.device.clone());
+        let out = self.tosend()?.evaluate_remote(remote_url, TorchDevice::Cpu);
         Ok(out)
     }
     pub fn evaluate_remote_many(&self, remote_url: String) -> Result<Option<Vec<Tensor>>> {
         let out = self
             .tosend()?
-            .evaluate_remote_many(remote_url, self.device_dtype.device.clone());
+            .evaluate_remote_many(remote_url, TorchDevice::Cpu);
         Ok(out)
     }
     fn __repr__(&self) -> String {
@@ -368,14 +347,10 @@ impl Schedule {
     }
 }
 impl Schedule {
-    pub fn deserialize(
-        string: String,
-        device: TorchDevice,
-        tensor_cache: &mut Option<TensorCacheRrfs>,
-    ) -> Result<Self> {
+    pub fn deserialize(string: String, tensor_cache: &mut Option<TensorCacheRrfs>) -> Result<Self> {
         let sent: ScheduleToSend =
             json::from_str(&string).context("schedule deserialization failed due to json error")?;
-        sent.load(device, tensor_cache)
+        sent.load(tensor_cache)
     }
 }
 
@@ -741,7 +716,6 @@ pub fn order_to_schedule(
     constants: &Vec<IrreducibleNode>,
     scalars: &Vec<Scalar>,
     to_keep: HashSet<HashBytes>,
-    device_dtype: TorchDeviceDtype,
 ) -> (Schedule, Vec<usize>) {
     let mut circ_to_id: HashMap<HashBytes, usize> = Default::default();
     let constants: HashMap<usize, _> = constants
@@ -760,7 +734,6 @@ pub fn order_to_schedule(
                 (circ_to_id.len() - 1, x.clone())
             })
             .collect(),
-        device_dtype,
         split_shapes: None,
         output_circuit: None,
         old_constant_hashes: constants
@@ -787,10 +760,7 @@ pub fn order_to_schedule(
         let next_id = circ_to_id.len();
         let our_id = *circ_to_id.entry(ex.info().hash).or_insert(next_id);
         let node_here_symbol_children = (**ex.map_non_free_children_unwrap(|child| {
-            let mut result =
-                child_from_key(circ_to_id[&child.info().hash], child.info().shape.clone());
-            result.info_mut().device_dtype = child.info().device_dtype;
-            result.rc()
+            child_from_key(circ_to_id[&child.info().hash], child.info().shape.clone()).rc()
         }))
         .clone()
         .rc();
@@ -976,7 +946,6 @@ pub fn circuit_to_schedule(
             .filter_map(|x| x.1.as_scalar().cloned())
             .collect(),
         HashSet::from_iter([circuit.info().hash]),
-        circuit.info().device_dtype.unwrap_or_defaults(),
     );
     out.output_circuit = Some((kept_keys[0], circuit));
     let out = replace_module_schedules(&out, context);
@@ -1006,7 +975,6 @@ pub fn circuit_to_schedule_naive_toposort(circuit: CircuitRc) -> Result<Schedule
         &constants,
         &scalars,
         HashSet::from_iter([circuit.info().hash]),
-        circuit.info().device_dtype.unwrap_or_defaults(),
     );
     result.output_circuit = Some((kept_keys[0], circuit));
     result.validate(true).expect("should be valid");

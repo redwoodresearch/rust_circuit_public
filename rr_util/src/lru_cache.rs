@@ -4,7 +4,7 @@ use anyhow::Result;
 use pyo3::{prelude::*, types::IntoPyDict};
 use rustc_hash::FxHashMap as HashMap;
 
-use crate::{py_types::Tensor, tensor_db::get_tensor_prefix, tensor_util::TorchDeviceDtype};
+use crate::{py_types::Tensor, tensor_db::get_tensor_prefix};
 // implement our own weighted LRU cache bc didnt see a weighted library
 // based on https://github.com/jeromefroe/lru-rs
 #[derive(Debug, Clone)]
@@ -173,7 +173,7 @@ impl TensorCacheRrfs {
                     )
                 })?;
                 let size = tensor.shape().iter().cloned().product::<usize>()
-                    * TorchDeviceDtype::from_tensor(&tensor).size();
+                    * tensor.device_dtype().size();
                 if size > self.size_cutoff {
                     self.large.insert(prefix, tensor.clone(), size)
                 } else {

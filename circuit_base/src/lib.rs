@@ -568,6 +568,13 @@ pub trait CircuitNode: CircuitNodeInit + CircuitNodeSelfOnlyHash + Clone {
             None => self,
         }
     }
+    fn maybe_rename(self, name: Option<Option<Name>>) -> Self {
+        if let Some(n) = name {
+            self.rename(n)
+        } else {
+            self
+        }
+    }
 }
 
 pub trait CircuitNodeAutoName: CircuitNode {
@@ -2200,6 +2207,16 @@ impl PyCircuitBase {
         self.0.map_children(|child| pycall!(f, (child,), anyhow))
     }
 
+    fn map_child(&self, ix: usize, f: PyCallable) -> Result<CircuitRc> {
+        anyhow::ensure!(
+            ix < self.children_sl().len(),
+            "replace_child: child index out of bounds"
+        );
+        let mut v = self.children();
+        v[ix] = pycall!(f, (v[ix].clone(),), anyhow)?;
+        self._replace_children(v)
+    }
+
     #[getter]
     fn num_children(&self) -> usize {
         self.0.num_children()
@@ -2467,23 +2484,91 @@ pub fn circuit_rust_to_py(circ: CircuitRc) -> PyObject {
 }
 
 /// casts tensors whith None device/dtype to specified device/dtype
-pub fn upcast_tensors(
-    tensors: &[Tensor],
-    device_dtypes: &[TorchDeviceDtypeOp],
-    out_device_dtype: TorchDeviceDtypeOp,
-) -> Vec<Tensor> {
-    zip(tensors, device_dtypes)
-        .map(|(t, dd)| {
-            if *dd != out_device_dtype {
-                pycall!(
-                    PY_UTILS.cast_tensor,
-                    (t.clone(), out_device_dtype.unwrap_or_defaults())
-                )
+pub fn cast_tensors(tensors: &[Tensor], out_device_dtype: TorchDeviceDtype) -> Vec<Tensor> {
+    tensors
+        .iter()
+        .map(|t| {
+            if t.device_dtype() != out_device_dtype {
+                pycall!(PY_UTILS.cast_tensor, (t.clone(), out_device_dtype))
             } else {
                 t.clone()
             }
         })
         .collect()
+}
+
+fn upcast_tensor_device_dtypes(tensors: &[Tensor]) -> Vec<Tensor> {
+    let device = upcast_devices_if_needed(
+        &tensors
+            .iter()
+            .map(|z| z.device_dtype().device)
+            .collect::<Vec<_>>(),
+    );
+    let dtype = upcast_dtypes_if_needed(
+        &tensors
+            .iter()
+            .map(|z| z.device_dtype().dtype)
+            .collect::<Vec<_>>(),
+    );
+    if device.is_some() || dtype.is_some() {
+        return cast_tensors(
+            tensors,
+            TorchDeviceDtypeOp { device, dtype }.unwrap_or_defaults(),
+        );
+    }
+    tensors.to_owned()
+}
+
+fn upcast_devices_if_needed(devices: &[TorchDevice]) -> Option<TorchDevice> {
+    if devices.len() == 0 || devices[1..].iter().all(|z| z == &devices[0]) {
+        return None;
+    }
+    devices
+        .iter()
+        .cloned()
+        .filter(|z| *z != TorchDevice::Cpu)
+        .next()
+}
+fn upcast_dtypes_if_needed(dtypes: &[TorchDtype]) -> Option<TorchDtype> {
+    if dtypes.len() == 0 || dtypes[1..].iter().all(|z| z == &dtypes[0]) {
+        return None;
+    }
+    dtypes
+        .iter()
+        .cloned()
+        .filter(|z| *z != TorchDtype::float64)
+        .next()
+}
+
+#[pyfunction]
+#[pyo3(name = "upcast_tensor_devices")]
+pub fn upcast_tensor_devices_py(tensors: Vec<Tensor>) -> Vec<Tensor> {
+    upcast_tensor_devices(&tensors)
+}
+#[pyfunction]
+#[pyo3(name = "upcast_tensor_device_dtypes")]
+pub fn upcast_tensor_device_dtypes_py(tensors: Vec<Tensor>) -> Vec<Tensor> {
+    upcast_tensor_device_dtypes(&tensors)
+}
+
+pub fn upcast_tensor_devices(tensors: &[Tensor]) -> Vec<Tensor> {
+    if let Some(device) = upcast_devices_if_needed(
+        &tensors
+            .iter()
+            .cloned()
+            .map(|z| z.device_dtype().device)
+            .collect::<Vec<_>>(),
+    ) {
+        return cast_tensors(
+            tensors,
+            TorchDeviceDtypeOp {
+                dtype: None,
+                device: Some(device),
+            }
+            .unwrap_or_defaults(),
+        );
+    }
+    tensors.to_owned()
 }
 
 /// alias for new_cast with same input, output constraint
@@ -2493,18 +2578,4 @@ pub fn enforce_dtype_device(
     name: Option<Name>,
 ) -> GeneralFunction {
     GeneralFunction::new_cast(circ, device_dtype, device_dtype, name).unwrap()
-}
-
-#[macro_export]
-macro_rules! upcast_tensors_for_eval {
-    ($selfy:ident, $tensory:ident) => {
-        $crate::upcast_tensors(
-            $tensory,
-            &($selfy
-                .children()
-                .map(|z| z.info().device_dtype)
-                .collect::<Vec<_>>()),
-            $selfy.info().device_dtype,
-        )
-    };
 }

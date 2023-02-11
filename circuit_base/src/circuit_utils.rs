@@ -30,7 +30,7 @@ pub fn cast_circuit(
             Circuit::Array(node) => {
                 if device_dtype
                     .clone()
-                    .combine(TorchDeviceDtype::from_tensor(&node.value).into())
+                    .combine(node.value.device_dtype().into())
                     .is_err()
                 {
                     Some(Array::nrc(
@@ -60,9 +60,7 @@ pub fn cast_circuit(
                                             device: device_dtype
                                                 .clone()
                                                 .device
-                                                .unwrap_or(
-                                                    TorchDeviceDtype::from_tensor(&tensor).device,
-                                                )
+                                                .unwrap_or(tensor.device_dtype().device)
                                                 .clone(),
                                             dtype: TorchDtype::int64,
                                         }

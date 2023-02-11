@@ -11,7 +11,7 @@ use pyo3::{
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::{
-    tensor_util::{Shape, TorchDeviceDtype, TorchDtype},
+    tensor_util::{Shape, TorchDevice, TorchDeviceDtype, TorchDtype},
     util::{EinsumAxes, HashBytes, HashBytesToPy},
 };
 pub struct PyUtils {
@@ -43,6 +43,10 @@ pub struct PyUtils {
     pub random_i64: PyObject,
     pub index_union_rebase: PyObject,
     pub canon_index_tensor: PyObject,
+    pub index_apply_dimwise: PyObject,
+    pub join_indices_unsync: PyObject,
+    pub just_join_indices_sync: PyObject,
+    pub scatter: PyObject,
 }
 
 /// misc python utilities
@@ -99,6 +103,10 @@ pub static PY_UTILS: GILLazyPy<PyUtils> = GILLazyPy::new_py(|py| {
         random_i64: get("random_i64"),
         index_union_rebase: get("index_union_rebase"),
         canon_index_tensor: get("canon_index_tensor"),
+        index_apply_dimwise: get("index_apply_dimwise"),
+        join_indices_unsync: get("join_indices_unsync"),
+        just_join_indices_sync: get("just_join_indices_sync"),
+        scatter: get("scatter"),
     }
 });
 
@@ -369,8 +377,9 @@ generate_extra_py_ops!(add, getitem, mul);
 #[derive(Clone)]
 pub struct Tensor {
     tensor: PyObject,
-    shape: Shape, /* cache shape so doesn't have to be recomputed on reconstruct etc (not uber efficient I think) */
+    pub shape: Shape, /* cache shape so doesn't have to be recomputed on reconstruct etc (not uber efficient I think) */
     hash: Option<HashBytes>,
+    device_dtype: TorchDeviceDtype,
 }
 
 impl fmt::Debug for Tensor {
@@ -396,12 +405,16 @@ impl Eq for Tensor {}
 
 impl<'source> FromPyObject<'source> for Tensor {
     fn extract(tensor: &'source PyAny) -> PyResult<Self> {
-        let shape =
+        let (shape, device, dtype) =
             Python::with_gil(|py| PY_UTILS.get_tensor_shape.call1(py, (tensor,))?.extract(py))?;
 
         Ok(Self {
             tensor: tensor.into(),
             shape,
+            device_dtype: TorchDeviceDtype {
+                device: TorchDevice::from_python(device)?,
+                dtype: TorchDtype::from_python(dtype)?,
+            },
             hash: None,
         })
     }
@@ -435,6 +448,9 @@ impl Tensor {
 
     pub fn hash(&self) -> Option<&HashBytes> {
         self.hash.as_ref()
+    }
+    pub fn device_dtype(&self) -> TorchDeviceDtype {
+        self.device_dtype
     }
 
     pub fn hash_base16(&self) -> Option<String> {
@@ -471,6 +487,7 @@ impl Tensor {
             Ok(Self {
                 tensor: self.tensor.clone(),
                 shape: self.shape.clone(),
+                device_dtype: self.device_dtype,
                 hash: Python::with_gil(|py| {
                     Ok::<Option<HashBytes>, anyhow::Error>(
                         HASH_TENSOR

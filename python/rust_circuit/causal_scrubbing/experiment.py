@@ -6,8 +6,8 @@ from warnings import warn
 import attrs
 import torch
 
-import rust_circuit.optional as op
 import rust_circuit as rc
+import rust_circuit.optional as op
 
 from .dataset import Dataset, color_dataset
 from .hypothesis import Correspondence, IllegalCorrespondenceError, InterpNode, SampledInputs, to_inputs

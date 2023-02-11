@@ -272,7 +272,7 @@ pub fn expand_node(
                     && node.index.0[i] != TensorAxisIndex::IDENT
                 {
                     bail!(ExpandError::FixedIndex {
-                        index: node.index.clone(),
+                        index: circuit.clone(),
                         old_shape: node.node().info().shape.clone(),
                         new_shape: inputs[0].info().shape.clone(),
                     });
@@ -296,7 +296,7 @@ pub fn expand_node(
                     && node.index.0[i] != TensorAxisIndex::IDENT
                 {
                     bail!(ExpandError::FixedIndex {
-                        index: node.index.clone(),
+                        index: circuit.clone(),
                         old_shape: node.node().info().shape.clone(),
                         new_shape: inputs[0].info().shape.clone(),
                     });
@@ -828,7 +828,7 @@ pub enum ExpandError {
 
     #[error("Trying to expand fixed index, index {index:?} old shape{old_shape:?} new shape {new_shape:?} ({e_name})")]
     FixedIndex {
-        index: TensorIndex,
+        index: CircuitRc,
         old_shape: Shape,
         new_shape: Shape,
     },

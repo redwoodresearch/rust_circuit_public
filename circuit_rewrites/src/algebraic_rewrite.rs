@@ -18,7 +18,6 @@ use rr_util::{
     filter_by_variant,
     name::Name,
     opt_einsum::optimize_einsum_spec_cached,
-    py_types::PY_CIRCUIT_ITEMS,
     python_error_exception,
     rearrange_spec::{shape_to_op_shape, OpSize, RInts, RearrangeSpec},
     sv,
@@ -87,7 +86,7 @@ pub fn add_elim_zeros(add: &Add) -> Option<Add> {
         .children()
         .filter_map(|node| match &**node {
             Circuit::Scalar(scalar) => {
-                if scalar.value == 0.0 && scalar.info().rank() == 0 {
+                if scalar.value == 0.0 {
                     did_anything = true;
                     None
                 } else {
@@ -100,7 +99,12 @@ pub fn add_elim_zeros(add: &Add) -> Option<Add> {
     if !did_anything {
         None
     } else {
-        Some(Add::new(new_operands, add.info().name))
+        let out = Add::new(new_operands, add.info().name);
+        if out.shape() == add.shape() {
+            Some(out)
+        } else {
+            None
+        } // in case the scalars caused broadcasting
     }
 }
 
@@ -1223,9 +1227,10 @@ pub fn axis_index_split_sections_for_concat(
     sections: &Vec<usize>,
 ) -> Result<Vec<Option<TensorAxisIndex>>> {
     let starts = cumsum(sections);
+    let len = sections.iter().sum();
     let out = match axis_index {
         TensorAxisIndex::Single(single) => {
-            let single = check_canon_idxs(sections.iter().sum(), &[*single])
+            let single = check_canon_idxs(len, &[*single])
                 .context("out of bounds when checking index for concat push down index")?[0];
             let outer_idx = starts.iter().take_while(|start| **start <= single).count() - 1;
             let inner_idx = single - starts[outer_idx];
@@ -1234,16 +1239,34 @@ pub fn axis_index_split_sections_for_concat(
             result
         }
         &TensorAxisIndex::Slice(slice) => {
-            let uslice: USlice = slice.to_uslice(sections.iter().sum());
+            let uslice: USlice = slice.to_uslice(len);
             let mut result = vec![None; sections.len()];
             for (i, (start, sec_len)) in zip(starts.iter(), sections.iter()).enumerate() {
                 let stop = start + sec_len;
-                if *start < uslice.stop && stop > uslice.start {
+                if *start < uslice.stop
+                    && stop > uslice.start
+                    && ((*start != stop) || (*start < uslice.stop - 1))
+                {
                     result[i] = Some(TensorAxisIndex::new_plain_slice(
                         uslice.start.saturating_sub(*start),
                         std::cmp::min(*sec_len, uslice.stop - start),
                     ))
                 }
+            }
+            if uslice.start == uslice.stop && result.iter().all(|x| x.is_none()) {
+                if uslice.start == 0 {
+                    result[0] = Some(TensorAxisIndex::Slice(uslice.into()))
+                } else if uslice.stop == len {
+                    let start = uslice.start.saturating_sub(*starts.last().unwrap());
+                    *result.last_mut().unwrap() =
+                        Some(TensorAxisIndex::new_plain_slice(start, start))
+                } else {
+                    // at boundary between concattands
+                    bail!(PushDownIndexError::ZeroLengthIndexAmbiguous {})
+                }
+            }
+            if sections.len() == 1 && result[0] == None {
+                result[0] = Some(TensorAxisIndex::Slice(uslice.into()))
             }
             result
         }
@@ -1262,6 +1285,12 @@ pub fn push_down_index_raw(
     call_on_sub: &mut dyn FnMut(usize, Index) -> Result<CircuitRc>,
     suffix: Option<String>,
 ) -> Result<CircuitRc> {
+    let out_name = node.node().info().name.map(|n_s| {
+        suffix
+            .as_ref()
+            .map(|s| format!("{n_s}{s}").into())
+            .unwrap_or(n_s)
+    });
     let mut on_sub = |child_idx,
                       node: CircuitRc,
                       index,
@@ -1270,22 +1299,17 @@ pub fn push_down_index_raw(
         let new_name: Option<Name> = force_name.unwrap_or_else(|| {
             suffix
                 .as_ref()
-                .map(|s| node.info().name.map(|n_s| format!("{n_s}{s}").into()))
-                .flatten()
+                .and_then(|s| node.info().name.map(|n_s| format!("{n_s}_idx_{s}").into()))
         });
         call_on_sub(child_idx, Index::new(node, index, new_name))
     };
-    let out_name = node.info().name;
-    let partial_name = || {
-        suffix
-            .as_ref()
-            .map(|s| {
-                node.node()
-                    .info()
-                    .name
-                    .map(|inner_name| format!("{inner_name}_partial_{s}").into())
-            })
-            .flatten()
+    let idx_partial_name = || {
+        suffix.as_ref().and_then(|s| {
+            node.node()
+                .info()
+                .name
+                .map(|inner_name| format!("{inner_name}_partial_{s}").into())
+        })
     };
 
     let handle_non_batchable_remaining = |rank_to_pass, new_circ: CircuitRc| {
@@ -1308,11 +1332,7 @@ pub fn push_down_index_raw(
                     .chain(top_axis_indices)
                     .collect(),
             );
-            Ok(Index::nrc(
-                new_circ.rename(partial_name()),
-                index_top,
-                out_name.clone(),
-            ))
+            Ok(Index::nrc(new_circ, index_top, idx_partial_name()))
         } else {
             Err((passed_rank_now, top_axis_indices))
         }
@@ -1434,14 +1454,14 @@ pub fn push_down_index_raw(
                         .map(|(i, operand)| on_sub(i, operand, index_non_axis.clone(), None))
                         .collect::<Result<_>>()?,
                     new_axis,
-                    partial_name(),
+                    out_name,
                 );
                 let final_index = TensorIndex::new_single(
                     node.index.0[inner.axis].clone(),
                     new_axis,
                     new_concat.info().rank(),
                 );
-                Index::nrc(new_concat, final_index, out_name)
+                Index::nrc(new_concat, final_index, idx_partial_name())
             }
         }
         Circuit::GeneralFunction(inner) => {
@@ -1568,7 +1588,7 @@ pub fn push_down_index_raw(
             if out_index.is_identity(new_einsum.shape()) {
                 new_einsum
             } else if allow_partial_pushdown {
-                Index::nrc(new_einsum.rename(partial_name()), out_index, out_name)
+                Index::nrc(new_einsum, out_index, idx_partial_name())
             } else {
                 bail!(PushDownIndexError::EinsumSomeAxesNotPossible {
                     index_node: node.clone(),
@@ -1579,26 +1599,13 @@ pub fn push_down_index_raw(
             }
         }
         Circuit::Rearrange(inner) => {
-            // doing this in python instead of porting to rust bc it has a lot of torch ops so likely wouldn't be faster in rust
-            let py_out = Python::with_gil(|py| {
-                PY_CIRCUIT_ITEMS
-                    .circ_compiler_util
-                    .getattr(py, "index_before_rearrange_rust")
-                    .unwrap()
-                    .call(
-                        py,
-                        (
-                            node.index.clone(),
-                            inner.spec.clone(),
-                            inner.node().info().shape.clone(),
-                            node.info().device_dtype.clone().unwrap_or_defaults().device,
-                        ),
-                        None,
-                    )
-                    .unwrap()
-                    .extract(py)
-            })?;
-            let (index, spec): (TensorIndex, RearrangeSpec) = if let Some(x) = py_out {
+            let (index, spec): (TensorIndex, RearrangeSpec) = if let Some(x) = inner
+                .conform_to_input_shape_spec()
+                .canonicalize(true)
+                .index_before(
+                    node.index.canonicalize(&node.node().shape()),
+                    node.info().device_dtype.clone().unwrap_or_defaults().device,
+                ) {
                 x
             } else {
                 bail!(PushDownIndexError::RearrangeNotPossible {
@@ -1643,7 +1650,7 @@ pub fn push_down_index_raw(
                 inner_node,
                 TensorIndex(new_scatter.iter().cloned().map(USlice::into).collect()),
                 new_scatter_shape,
-                out_name.clone(),
+                out_name,
             );
 
             let out_index = TensorIndex(new_outer);
@@ -1651,7 +1658,7 @@ pub fn push_down_index_raw(
             if out_index.is_identity(new_scatter.shape()) {
                 new_scatter
             } else if allow_partial_pushdown {
-                Index::nrc(new_scatter.rename(partial_name()), out_index, out_name)
+                Index::nrc(new_scatter, out_index, idx_partial_name())
             } else {
                 bail!(PushDownIndexError::ScatterSomeAxesNotPossible {
                     index_node: node.clone(),
@@ -2100,6 +2107,9 @@ pub enum PushDownIndexError {
 
     #[error("tensors aren't currently supported tensor={tensor:?} ({e_name})")]
     ConcatSplitSectionsTensorUnsupported { tensor: IndexTensor },
+
+    #[error("zero-length index and no unique choice ({e_name})")]
+    ZeroLengthIndexAmbiguous {},
 }
 
 #[apply(python_error_exception)]
