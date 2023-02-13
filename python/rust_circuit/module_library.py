@@ -1005,11 +1005,23 @@ def load_transformer_model_string(
 
     circs = info.params.get().circs
     added = add_new_circs(s, circs, parser=parser)
-    from interp.model.model_loading import MODEL_CLASS_STR_TO_MODEL_AND_TOKENIZER_FNS
 
-    tokenizer_fn = MODEL_CLASS_STR_TO_MODEL_AND_TOKENIZER_FNS[info.model_class][1]
+    # copied out of model_loading to work in open source version
+    if info.model_class in {"GPT", "GPTBeginEndToks"}:
+        import transformers
 
-    return (added, tokenizer_fn(), info)
+        tokenizer = transformers.GPT2TokenizerFast.from_pretrained("gpt2")
+        tokenizer._add_tokens(["[END]"])
+        tokenizer.pad_token = "[END]"
+        if info.model_class == "GPTBeginEndToks":
+            tokenizer._add_tokens(["[BEGIN]"])
+            tokenizer.eos_token = "[END]"
+    else:
+        from interp.model.model_loading import MODEL_CLASS_STR_TO_MODEL_AND_TOKENIZER_FNS
+
+        tokenizer = MODEL_CLASS_STR_TO_MODEL_AND_TOKENIZER_FNS[info.model_class][1]()
+
+    return (added, tokenizer, info)
 
 
 def get_model_path(model_id: str):

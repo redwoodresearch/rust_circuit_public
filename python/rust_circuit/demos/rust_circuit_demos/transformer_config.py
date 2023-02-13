@@ -6,7 +6,6 @@ import pytest
 
 import rust_circuit as rc
 import rust_circuit.module_library as mod_l
-from rust_circuit.indexer import SLICER as S
 from rust_circuit.model_rewrites import (
     To,
     clear_block_module,
@@ -18,6 +17,7 @@ from rust_circuit.model_rewrites import (
     split_by_head,
     strip_arr,
 )
+from rust_circuit.py_utils import S
 
 # %%
 

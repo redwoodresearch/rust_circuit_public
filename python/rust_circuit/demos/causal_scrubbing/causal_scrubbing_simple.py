@@ -27,7 +27,7 @@ from rust_circuit.causal_scrubbing.hypothesis import (
 )
 from rust_circuit.causal_scrubbing.testing_utils import IntDataset
 from rust_circuit.demos.notebook_testing import NotebookInTesting
-from rust_circuit.indexer import INDEXER as I
+from rust_circuit.py_utils import I
 
 # %%
 # Make a dataset of xs and labels

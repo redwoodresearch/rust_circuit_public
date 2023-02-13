@@ -40,9 +40,9 @@ from rust_circuit.causal_scrubbing.hypothesis import (
     corr_root_matcher,
 )
 from rust_circuit.demos.notebook_testing import NotebookInTesting
-from rust_circuit.indexer import INDEXER as I
 from rust_circuit.model_rewrites import To, configure_transformer
 from rust_circuit.module_library import load_model_id
+from rust_circuit.py_utils import I
 from rust_circuit.ui.ui import circuit_graph_ui, ui_default_hidden_matcher
 
 from . import test_paren_balancer_exercises as tests

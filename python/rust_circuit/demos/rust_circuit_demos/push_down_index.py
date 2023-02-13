@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from rust_circuit import Index, Matcher, Parser, PrintOptions, default_index_traversal, push_down_index, restrict
-from rust_circuit.indexer import INDEXER as I
+from rust_circuit.py_utils import I
 
 # %%
 

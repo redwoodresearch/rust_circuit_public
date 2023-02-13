@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import itertools
-from typing import Callable, List, Optional, Sequence, Tuple, TypeVar, cast
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple, TypeVar, cast
 
-from interp.circuit.partitioning import partition
 from rust_circuit import optional as op
 
 from ._rust import (
@@ -20,6 +19,25 @@ from ._rust import (
     kappa_term,
     symbolic_sizes,
 )
+
+
+# source: https://stackoverflow.com/questions/19368375/set-partitions-in-python
+def partition(collection: List[T]) -> Iterable[List[List[T]]]:
+    if len(collection) == 0:
+        yield []
+        return
+
+    if len(collection) == 1:
+        yield [collection]
+        return
+
+    first = collection[0]
+    for smaller in partition(collection[1:]):
+        # insert `first` in each of the subpartition's subsets
+        for n, subset in enumerate(smaller):
+            yield smaller[:n] + [[first] + subset] + smaller[n + 1 :]
+        # put `first` in its own subset
+        yield [[first]] + smaller
 
 
 def cum_name_to_eps_name(cum_name: str):

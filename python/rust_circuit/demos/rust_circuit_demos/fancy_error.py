@@ -4,7 +4,7 @@
 import pytest
 
 import rust_circuit as rc
-from rust_circuit.indexer import INDEXER as I
+from rust_circuit.py_utils import I
 
 # %% [markdown]
 

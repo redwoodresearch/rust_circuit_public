@@ -626,7 +626,7 @@ def test_pull_through_add_concat(circuit):
     circuit=st_Circuit(
         st_np.array_shapes(min_dims=0),
         must_be_explicitly_computable=True,
-        max_growth_steps=4,  # 1 + num_children of the Add.
+        max_growth_steps=10,
         growth_order="breadth_first",
         probs_default=CP.kw(all=1),
         probs_per_depth=[CP.kw(all=0, Add=(1, dict(max_n_children=3))), CP.kw(all=0, Index=1)],

@@ -29,7 +29,7 @@ from rust_circuit.causal_scrubbing.hypothesis import (
     corr_root_matcher,
 )
 from rust_circuit.causal_scrubbing.testing_utils import IntDataset, loss_fn
-from rust_circuit.indexer import INDEXER as I
+from rust_circuit.py_utils import I
 
 label_cond = FS(lambda d: d.labels.value)
 

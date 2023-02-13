@@ -104,14 +104,15 @@ async def show_tensors(
     name="untitled",
     show_tensors: Optional[list[int]] = None,
 ):
-    from interp.circuit.circuits_very_named_tensor import CircuitsVeryNamedTensor
+    vnt_types = (LazyVeryNamedTensor, rCircuitsVeryNamedTensor)
+    try:
+        from interp.circuit.circuits_very_named_tensor import CircuitsVeryNamedTensor
 
-    lvnts = tuple(
-        lvnt.to_lvnt()
-        if not isinstance(lvnt, (LazyVeryNamedTensor, CircuitsVeryNamedTensor, rCircuitsVeryNamedTensor))
-        else lvnt
-        for lvnt in lvnts
-    )
+        vnt_types = vnt_types + (CircuitsVeryNamedTensor,)  # type: ignore
+    except ImportError:
+        pass
+
+    lvnts = tuple(lvnt.to_lvnt() if not isinstance(lvnt, vnt_types) else lvnt for lvnt in lvnts)  # type: ignore
     with lock:
         did_exist = name in served_things
         served_things[name] = lvnts

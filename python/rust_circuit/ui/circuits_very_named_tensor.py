@@ -11,10 +11,10 @@ import torch
 
 import rust_circuit.optional as op
 from rust_circuit.algebric_rewrite import check_permutation
-from rust_circuit.py_utils import make_index_at
+from rust_circuit.py_utils import assert_never, make_index_at
 from rust_circuit.ui.very_named_tensor import VeryNamedTensor, ViewSpec, ViewSpecIdx
 
-from .._rust import Circuit, Index, Shape
+from .._rust import Circuit, Index, Shape, TorchAxisIndex
 
 EvalCallback = Callable[[Circuit, ViewSpec], Union[Tuple[torch.Tensor, Set[int], Set[int]], torch.Tensor]]
 """ returns evaluated tensor, handled view items, removed dim items """
@@ -114,7 +114,7 @@ class CircuitsVeryNamedTensor:
     @staticmethod
     def try_idx_view(
         view_el: Union[ViewSpecIdx, List[ViewSpecIdx]], index_device: Union[str, torch.device] = "cpu"
-    ) -> Optional[TorchAxisIndex]:
+    ) -> Optional[Union[int, torch.Tensor]]:
         if isinstance(view_el, int):
             return view_el
         elif isinstance(view_el, list):
@@ -153,9 +153,13 @@ class CircuitsVeryNamedTensor:
     @classmethod
     def get_view_shape_handled_status(cls, view_el: Union[ViewSpecIdx, List[ViewSpecIdx]], size: int):
         if (idx := cls.try_idx_view(view_el)) is not None:
-            from interp.circuit.circuit_compiler.util import IndexUtil
+            if isinstance(idx, int):
+                out_shape = ()
+            elif isinstance(idx, torch.Tensor):
+                out_shape = (len(idx),)
+            else:
+                assert_never(idx)
 
-            out_shape = IndexUtil.apply_to_shape(IndexUtil.canonicalize((idx,), (size,)), (size,))
             assert len(out_shape) in [0, 1]
             return out_shape, True
         elif view_el == "mean":

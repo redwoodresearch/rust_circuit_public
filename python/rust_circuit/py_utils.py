@@ -32,12 +32,29 @@ class timed:
             print(self.readout + (self.extra_print if self.extra_print is not None else ""))
 
 
+TorchIndex = Union[Tuple[TorchAxisIndex, ...], TorchAxisIndex]
+
+
 class Indexer:
-    def __getitem__(self, idx):
+    """Helper for defining slices more easily which always returns tuples
+    (instead of sometimes returning just TorchAxisIndex)."""
+
+    def __getitem__(self, idx: TorchIndex) -> Tuple[TorchAxisIndex, ...]:
+        if isinstance(idx, tuple):
+            return idx
+        return (idx,)
+
+
+class Slicer:
+    """Helper for defining slices more easily which always returns slices"""
+
+    def __getitem__(self, idx: slice) -> slice:
+        assert isinstance(idx, slice)
         return idx
 
 
 I = Indexer()
+S = Slicer()
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
@@ -70,9 +87,6 @@ class FrozenDict(dict, Generic[KT, VT]):
 
     def __repr__(self):
         return f"{self.__class__.__name__}({super().__repr__()})"
-
-
-TorchIndex = Union[Tuple[TorchAxisIndex, ...], TorchAxisIndex]
 
 
 def make_index_at(index: TorchIndex, at: int):

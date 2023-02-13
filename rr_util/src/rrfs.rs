@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 
 use crate::py_types::{Tensor, PY_UTILS};
 pub fn get_rrfs_dir() -> String {
-    std::env::var("RRFS_DIR").unwrap_or_else(|_e| std::env::var("HOME").unwrap() + "/rrfs")
+    std::env::var("RR_RRFS_DIR").unwrap_or_else(|_e| std::env::var("HOME").unwrap() + "/rrfs")
 }
 
 pub fn get_tensor_by_hash_dir() -> String {

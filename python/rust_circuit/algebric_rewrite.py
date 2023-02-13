@@ -40,6 +40,7 @@ from ._rust import (
 )
 from ._rust import extract_add as extract_add_rust
 from ._rust import (
+    hash_tensor,
     index_elim_identity,
     make_broadcast,
     new_traversal,
@@ -661,22 +662,20 @@ def pull_through_add_concat(c: Add) -> Circuit:
 try_pull_through_add_concat = try_transform_wrapper(pull_through_add_concat)
 
 
-def hash_index(index: List[TorchAxisIndex]) -> bytes:
-    """Like index hash, but does not support hash_tensor_idx_by_value"""
-    index_hash = hashlib.blake2b(b"<INDEX>")
-    from interp.circuit.eq_by_big_hash import hash_add, hash_add_by_id
+def index_key(index: List[TorchAxisIndex]) -> tuple:
+    """Convert index attr into a hashable tuple"""
+    out = []
 
     for i in index:
         if isinstance(i, torch.Tensor):
-            hash_add(index_hash, i.shape)
-            hash_add_by_id(index_hash, i)
-        elif isinstance(i, (int, slice)):
-            hash_add(index_hash, i)
+            out.append(hash_tensor(i))
+        elif isinstance(i, slice):
+            out.append((i.start, i.stop, i.step))
+        elif isinstance(i, int):
+            out.append(i)
         else:
             assert_never(i)
-        index_hash.update(b"<ITEM>")
-    index_hash.update(b"<END>")
-    return index_hash.digest()
+    return tuple(out)
 
 
 def pull_through_add_index(c: Add) -> Index:
@@ -695,8 +694,8 @@ def pull_through_add_index(c: Add) -> Index:
             raise ImpossibleRewriteError(f"Child {k} is not an Index")
         items.append(k)
 
-    shapes_index_hash = {(k.node.shape, hash_index(k.idx)) for k in items}
-    if len(shapes_index_hash) != 1:
+    shapes_index = {(k.node.shape, index_key(k.idx)) for k in items}
+    if len(shapes_index) != 1:
         raise ImpossibleRewriteError
 
     return Index(

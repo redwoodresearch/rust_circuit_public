@@ -28,7 +28,7 @@ from rust_circuit import (
     multinomial,
     optimize_and_evaluate,
 )
-from rust_circuit.indexer import INDEXER as I
+from rust_circuit.py_utils import I
 
 
 def test_estim_cumulant_shape_correct(seed=23473):

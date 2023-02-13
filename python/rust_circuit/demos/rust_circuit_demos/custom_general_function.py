@@ -10,7 +10,7 @@ import torch
 from torch.testing import assert_close
 
 import rust_circuit as rc
-from rust_circuit.indexer import INDEXER as I
+from rust_circuit.py_utils import I
 
 #%%
 
