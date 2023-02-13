@@ -458,7 +458,7 @@ pub fn append_matchers_to_names(
         let new_children: Vec<CircuitRc> = zip(circuit.children(), child_matchers)
             .map(|(a, b)| recurse(a, b, discard_old_name))
             .collect::<Result<Vec<CircuitRc>>>()?;
-        let result = circuit.map_children_unwrap_idxs(|i| new_children[i].clone());
+        let result = circuit.replace_children(new_children).unwrap();
         if discard_old_name {
             return Ok(result.rename(Some(format!("{}", &matcher.0).into())));
         }

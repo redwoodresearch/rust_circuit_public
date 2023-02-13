@@ -1,8 +1,9 @@
 import pytest
 import torch
 
-from interp.circuit.computational_node import make_index_at, normalize_index
+from interp.circuit.computational_node import normalize_index
 from rust_circuit import Array, Cumulant, DiscreteVar, GeneralFunction, RunDiscreteVarAllSpec, Sampler
+from rust_circuit.py_utils import make_index_at
 
 
 def test_gen_index_at_batch_x():

@@ -1327,7 +1327,7 @@ impl AllModuleSubstituter {
             .substitute_with_mod_name(&nodes, None, None, m.info().name)
             .expect("module constructor should ensure this works")
         } else {
-            circuit.map_children_unwrap_idxs(|i| new_children[i].clone())
+            circuit.replace_children(new_children).unwrap()
         }
     }
 }
@@ -1363,7 +1363,7 @@ pub fn inline_single_callsite_modules(circuit: CircuitRc) -> CircuitRc {
                 .map(|i| *i == 1)
                 .unwrap_or(false)
             {
-                mn.map_children_idxs(|z| Ok(children[z].clone()))
+                mn.replace_children(children.clone())
                     .unwrap()
                     .substitute(None, None)
             } else {

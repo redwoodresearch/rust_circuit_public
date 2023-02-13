@@ -138,7 +138,7 @@ pub fn expand_node(
         // Just special casing for efficiency
         // We can't use unwrap because we still want to propagate errors from
         // stuff like dtype mismatches or constraint violations.
-        return circuit.map_children_idxs(|i| Ok(inputs[i].clone()));
+        return circuit.replace_children(inputs.clone());
     }
 
     let batch_ranks: Vec<usize> = zip(circuit.children(), inputs)

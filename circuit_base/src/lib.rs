@@ -225,6 +225,14 @@ pub trait CircuitNode: CircuitNodeInit + CircuitNodeSelfOnlyHash + Clone {
         self.info().children.len()
     }
 
+    fn replace_children(&self, new_children: Vec<CircuitRc>) -> Result<Self> {
+        anyhow::ensure!(
+            new_children.len() == self.num_children(),
+            "replace_children: wrong number of children"
+        );
+        self._replace_children(new_children)
+    }
+
     fn map_children_enumerate<F>(&self, mut f: F) -> Result<Self>
     where
         Self: Sized,
@@ -268,14 +276,6 @@ pub trait CircuitNode: CircuitNodeInit + CircuitNodeSelfOnlyHash + Clone {
         self.map_non_free_children_enumerate(|_i, x| f(x))
     }
 
-    fn map_children_idxs<F>(&self, mut f: F) -> Result<Self>
-    where
-        Self: Sized,
-        F: FnMut(usize) -> Result<CircuitRc>,
-    {
-        self.map_children_enumerate(|i, _x| f(i))
-    }
-
     fn map_children_unwrap<F>(&self, mut f: F) -> Self
     where
         Self: Sized,
@@ -297,14 +297,6 @@ pub trait CircuitNode: CircuitNodeInit + CircuitNodeSelfOnlyHash + Clone {
         F: FnMut(usize, CircuitRc) -> CircuitRc,
     {
         self.map_children_enumerate(|i, x| Ok(f(i, x))).unwrap()
-    }
-
-    fn map_children_unwrap_idxs<F>(&self, mut f: F) -> Self
-    where
-        Self: Sized,
-        F: FnMut(usize) -> CircuitRc,
-    {
-        self.map_children_enumerate(|i, _x| Ok(f(i))).unwrap()
     }
 
     /// if any return Some, return child mapped, otherwise None
@@ -1254,10 +1246,10 @@ impl CachedCircuitInfo {
     /// Saturating element count
     pub fn numel_usize(&self) -> usize {
         let numel_digits = self.numel().to_u64_digits();
-        if numel_digits.len() == 1 {
-            numel_digits[0] as usize
-        } else {
-            usize::MAX
+        match numel_digits.len() {
+            0 => 0,
+            1 => numel_digits[0] as usize,
+            _ => usize::MAX,
         }
     }
 
@@ -1852,10 +1844,10 @@ where
             let new_real_children = zip(old_children, new_children)
                 .map(|(old, new)| new.unwrap_or(old))
                 .collect();
-            Some(f(circ.clone(), &new_real_children).unwrap_or_else(|| {
-                circ.map_children_unwrap_idxs(|i| new_real_children[i].clone())
-                    .rc()
-            }))
+            Some(
+                f(circ.clone(), &new_real_children)
+                    .unwrap_or_else(|| circ.replace_children(new_real_children).unwrap().rc()),
+            )
         }
     }
     recurse(circuit)
@@ -2016,18 +2008,18 @@ impl DerefMut for CircuitRc {
 
 impl CircuitNodeInit for CircuitRc {
     fn init_info_impl(self, is_initial: bool) -> Result<Self> {
-        Ok(self.c().clone().init_info_impl(is_initial)?.rc())
+        Ok(self.c().init_info_impl(is_initial)?.rc())
     }
 
     fn rename_impl(self, new_name: Option<Name>) -> Self {
-        self.c().clone().rename(new_name).rc()
+        self.c().rename(new_name).rc()
     }
 
     fn update_info_impl<F>(self, f: F) -> Result<Self>
     where
         F: FnOnce(&mut CachedCircuitInfo),
     {
-        Ok(self.c().clone().update_info_impl(f)?.rc())
+        Ok(self.c().update_info_impl(f)?.rc())
     }
 }
 

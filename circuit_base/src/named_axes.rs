@@ -89,7 +89,7 @@ pub fn propagate_named_axes(
         },
         |circuit, named_axes, children| {
             set_named_axes(
-                circuit.map_children_unwrap_idxs(|i| children[i].clone()),
+                circuit.replace_children(children.clone()).unwrap(),
                 merge_named_axes(&circuit.info().named_axes, named_axes),
             )
             .unwrap() // Ok because inputs don't have spaces

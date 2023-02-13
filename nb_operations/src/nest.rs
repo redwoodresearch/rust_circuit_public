@@ -1095,7 +1095,9 @@ where
             flatten_impl(c, new_matcher.clone(), updated_matchers_to_pair)
         })
         .collect::<Result<Vec<_>>>()?;
-    let x = x.map_children_unwrap_idxs(|i| rec_on_children[i].0.clone());
+    let x = x
+        .replace_children(rec_on_children.iter().map(|x| x.0.clone()).collect())
+        .unwrap();
 
     Ok(Full::finish_after_rec(&rec_on_children, x))
 }

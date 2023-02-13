@@ -848,13 +848,13 @@ impl ModulePusher {
             )?;
             if mode == PushDownMode::PushOverride {
                 let out = Some(
-                    m.map_children_unwrap_idxs(|i| {
-                        if i == 0 {
-                            out.clone().unwrap()
-                        } else {
-                            new_nodes_flat_orig[i - 1].clone().unwrap()
-                        }
-                    })
+                    m.replace_children(
+                        std::iter::once(out)
+                            .chain(new_nodes_flat_orig)
+                            .map(|x| x.unwrap())
+                            .collect(),
+                    )
+                    .unwrap()
                     .rc(),
                 );
                 (out, Default::default(), false)

@@ -50,7 +50,7 @@ from ._rust import (
     rearrange_fuse,
     traverse_until_depth,
 )
-from .py_utils import I
+from .py_utils import I, make_index_at
 
 T = TypeVar("T")
 
@@ -1358,7 +1358,6 @@ def split_reduce_concat_impl(
             if is_concat:
                 assert (torch.sort(to_set, descending=True)[0] == to_set).all()
         assert to_set.all(), (to_set, to_set.shape)
-    from interp.circuit.computational_node import make_index_at
 
     return [
         run_on_index(
@@ -1643,7 +1642,6 @@ def insert_diag_mul_mask_many(
 # maybe use split_to_concat
 def split_to_concat_for_batch(circ: Circuit, batch_size: int, axis: int = 0):
     assert circ.rank >= 1
-    from interp.circuit.computational_node import make_index_at
 
     return Concat(
         *[

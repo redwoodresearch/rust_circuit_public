@@ -11,6 +11,7 @@ import torch
 
 import rust_circuit.optional as op
 from rust_circuit.algebric_rewrite import check_permutation
+from rust_circuit.py_utils import make_index_at
 from rust_circuit.ui.very_named_tensor import VeryNamedTensor, ViewSpec, ViewSpecIdx
 
 from .._rust import Circuit, Index, Shape
@@ -135,7 +136,6 @@ class CircuitsVeryNamedTensor:
         index_device: Union[str, torch.device] = "cpu",
     ) -> Optional[Tuple[Circuit, bool]]:
         """returns new circuit and whether or not the dim was removed"""
-        from interp.circuit.computational_node import make_index_at
 
         if (idx := cls.try_idx_view(view_el, index_device=index_device)) is not None:
             return Index(circ, make_index_at(idx, dim)), len(cls.get_view_shape_handled(view_el, circ.shape[dim])) == 0

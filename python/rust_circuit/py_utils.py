@@ -1,5 +1,7 @@
 from time import perf_counter
-from typing import Generic, NoReturn, Optional, Tuple, TypeVar
+from typing import Generic, List, Mapping, NoReturn, Optional, Tuple, TypeVar, Union
+
+from ._rust import TorchAxisIndex
 
 
 def assert_never(x: NoReturn) -> NoReturn:
@@ -68,3 +70,30 @@ class FrozenDict(dict, Generic[KT, VT]):
 
     def __repr__(self):
         return f"{self.__class__.__name__}({super().__repr__()})"
+
+
+TorchIndex = Union[Tuple[TorchAxisIndex, ...], TorchAxisIndex]
+
+
+def make_index_at(index: TorchIndex, at: int):
+    return make_index_at_many({at: index})
+
+
+def to_axis_index(idx: TorchIndex) -> TorchAxisIndex:
+    if isinstance(idx, tuple):
+        assert len(idx) == 1
+        return idx[0]
+    else:
+        return idx
+
+
+def make_index_at_many(at_idx: Mapping[int, TorchIndex]) -> Tuple[TorchAxisIndex, ...]:
+    out = get_slice_list(max(at_idx.keys(), default=-1) + 1)
+    for at, idx in at_idx.items():
+        out[at] = to_axis_index(idx)
+
+    return tuple(out)
+
+
+def get_slice_list(n: int) -> List[TorchAxisIndex]:
+    return [slice(None)] * n
