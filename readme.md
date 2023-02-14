@@ -9,11 +9,10 @@ Rust_circuit is a library for expressing and manipulating tensor computations fo
 - Install Miniconda from [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
 - Create a new Python 3.11 environment: `conda create -n circ python=3.11 -y`
 - Activate the environment: `conda activate circ`
-- If you have a GPU, check your CUDA version: `nvcc --version` - mine was 11.6
-- Install PyTorch from pip (change the CUDA version if needed):  `pip install -f https://download.pytorch.org/whl/torch_stable.html torch==1.13.1+cu116`
+- Install PyTorch from pip:  `pip install -f https://download.pytorch.org/whl/torch_stable.html torch==1.13.1+cu116`
 - Install more dependencies from pip: `pip install maturin[patchelf] attrs cattrs blake3 numpy msgpack websockets`
-- Build rust_circuit: `maturin develop --features static-z3`
-- Now, `import rust_circuit` should work!
+- Build rust_circuit (this will take a few minutes): `maturin develop --features static-z3`
+- Now, in the Python interpreter you should be able to `import rust_circuit`.
 
 ## Building from Source on M1 Mac
 
