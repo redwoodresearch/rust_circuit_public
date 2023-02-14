@@ -1047,4 +1047,3 @@ token_upcast_module = make_spec(
     ),
     [P("'upcast_toks.int16_toks' [] Symbol")],
 )
-print(token_upcast_module)
