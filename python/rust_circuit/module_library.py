@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import functools
 import json
 import random
@@ -1026,7 +1025,7 @@ def load_transformer_model_string(
 
 def get_model_path(model_id: str):
     # we should plausibly eventually remove current circ_models/ and replace with circ_models2/
-    from interp.tools.rrfs import RRFS_DIR
+    from rust_circuit.rrfs import RRFS_DIR
 
     return f"{RRFS_DIR}/circ_models2/{model_id}.circ"
 
