@@ -6,14 +6,6 @@ from typing import *
 import torch
 
 import rust_circuit.optional as op
-from interp.circuit.circuit import Circuit, MemoizedFn, Shape
-from interp.circuit.circuit_compiler.util import TorchAxisIndex
-from interp.circuit.circuit_utils import device_eq, evaluate_fn
-from interp.circuit.computational_node import Add, Concat, Einsum, GeneralFunction, Index, UnaryRearrange, WildFunction
-from interp.circuit.constant import ArrayConstant, FloatConstant, One, Zero
-from interp.circuit.cumulant import Cumulant
-from interp.circuit.eq_by_big_hash import hash_add, hash_add_by_id
-from interp.circuit.var import AutoTag, DiscreteVar, StoredCumulantVar
 from rust_circuit.py_utils import assert_never
 
 from . import _rust as rc
@@ -77,6 +69,7 @@ class FromPyGeneralFunctionSpec(GeneralFunctionSpecBase):
         return self.name_val
 
     def compute_hash_bytes(self) -> bytes:
+        from interp.circuit.eq_by_big_hash import hash_add, hash_add_by_id
         m = hashlib.blake2b(str(self.__class__).encode())
         hash_add(m, self.name)
         hash_add_by_id(m, self.function_val)
@@ -89,13 +82,21 @@ class FromPyGeneralFunctionSpec(GeneralFunctionSpecBase):
     def function(self, *tensors: torch.Tensor) -> torch.Tensor:
         return self.function_val(*tensors)
 
-    def get_shape_info(self, *shapes: Shape) -> GeneralFunctionShapeInfo:
+    def get_shape_info(self, *shapes: "Shape") -> GeneralFunctionShapeInfo:
         return GeneralFunctionShapeInfo(
             self.get_shape_val(*shapes), self.num_non_batchable_output_dims, self.input_batchability
         )
 
 
-def py_to_rust(py: Circuit, device_dtype_op=TorchDeviceDtypeOp()) -> rCircuit:
+def py_to_rust(py: "Circuit", device_dtype_op=TorchDeviceDtypeOp()) -> rCircuit:
+    from interp.circuit.circuit import Circuit
+    from interp.circuit.circuit_compiler.util import TorchAxisIndex
+    from interp.circuit.circuit_utils import device_eq
+    from interp.circuit.computational_node import Add, Concat, Einsum, GeneralFunction, Index, UnaryRearrange, WildFunction
+    from interp.circuit.constant import ArrayConstant, FloatConstant, One, Zero
+    from interp.circuit.cumulant import Cumulant
+    from interp.circuit.var import AutoTag, DiscreteVar, StoredCumulantVar
+
     @functools.cache
     def recurse(py: Circuit) -> rCircuit:
         if isinstance(py, (Zero, One, FloatConstant)):
@@ -200,6 +201,12 @@ def py_to_rust(py: Circuit, device_dtype_op=TorchDeviceDtypeOp()) -> rCircuit:
 
 
 def rust_to_py(rust: rCircuit):
+    from interp.circuit.circuit import Circuit
+    from interp.circuit.computational_node import Add, Concat, Einsum, GeneralFunction, Index, UnaryRearrange, WildFunction
+    from interp.circuit.constant import ArrayConstant, FloatConstant
+    from interp.circuit.cumulant import Cumulant
+    from interp.circuit.var import AutoTag, DiscreteVar, StoredCumulantVar
+
     @functools.cache
     def recurse(rust: rCircuit):
         result = recurse_raw(rust)
@@ -285,13 +292,15 @@ def py_generalfunction_get_shape(num_non_batchable: int):
 
 
 # this takes python circuit, rust version takes rust circuit
-def schedule_replace_circuits(schedule: rSchedule, map: Dict[Circuit, torch.Tensor]):
+def schedule_replace_circuits(schedule: rSchedule, map: Dict["Circuit", torch.Tensor]):
     new_dict = {py_to_rust(k).hash: v for k, v in map.items()}
     result = schedule.replace_tensors(new_dict)
     return result
 
 
 def rust_get_f64_evaluator():
+    from interp.circuit.circuit import MemoizedFn
+    from interp.circuit.circuit_utils import evaluate_fn
     return lambda circuits: [MemoizedFn(evaluate_fn(dtype=torch.float64))(c) for c in circuits]
 
 
