@@ -1,6 +1,6 @@
 # Rust Circuit
 
-Rust_circuit is a library for expressing and manipulating tensor computations for neural network interpretability, written in Rust and used in Python notebooks. It includes support for causal scrubbing. 
+Rust_circuit is a library for expressing and manipulating tensor computations for neural network interpretability, written in Rust and used in Python notebooks. It includes support for causal scrubbing.
 
 Linux and M1 Mac are supported - Windows has not been tested and probably does not work.
 
@@ -10,7 +10,7 @@ If you're just getting started with mechanistic interpretability, [Neel Nanda's 
 
 ## Installation
 
-Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so you won't be able to use that directly - you have to build the Rust code in this repository from source. 
+Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so you won't be able to use that directly - you have to build the Rust code in this repository from source.
 
 ### Building from Source on Linux
 
@@ -36,7 +36,7 @@ Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so
 - Install z3 through brew: `brew install z3`
   - Link the dylib to your system lib path (`sudo ln -s /opt/homebrew/lib/libz3.dylib /usr/local/lib`)
   - Link the headers to your system header path (`sudo ln -s /opt/homebrew/include/z3*.h /usr/local/include`)
-- Build rust_circuit: `maturin develop`
+- Build rust_circuit: `maturin develop --features extension-module`
 - Now, in the Python interpreter you should be able to `import rust_circuit`.
 
 ## VS Code Configuration
@@ -47,7 +47,7 @@ Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so
 
 The [REMIX curriculum](https://github.com/redwoodresearch/remix_public) is open source and is the best way to learn about how to use this library. Participants spent about 6 days of full time work to learn the library; it is extremely powerful and full-featured but also not easy to use.
 
-The next best thing is to [learn the Rust language](https://doc.rust-lang.org/book/) and just read the source code directly. 
+The next best thing is to [learn the Rust language](https://doc.rust-lang.org/book/) and just read the source code directly.
 
 Unfortunately, many of the demo notebooks in `python/rust_circuit/demos` and unit tests in `python/tests` don't run without internal Redwood code.
 
@@ -60,6 +60,10 @@ Unfortunately, many of the demo notebooks in `python/rust_circuit/demos` and uni
 ### Can't find libpython
 
 If you see an error about not being able to find `libpython`, you'll need to find it on your system and then add the containing folder to the `LD_LIBRARY_PATH` environment variable. On my machine, it was in `/home/ubuntu/miniconda3/envs/circ/lib/`. If you don't know where it is, try the [find_libpython](https://pypi.org/project/find-libpython/) tool.
+
+## Segmentation Fault when importing on M1
+
+This can be caused by omitting the `--features extension-module` flag when you build. In this case you might see a warning during build like "Warning: You're building a library without activating pyo3's `extension-module` feature....
 
 ### Debugging Rust code
 
