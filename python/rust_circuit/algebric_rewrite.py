@@ -1355,7 +1355,9 @@ def split_reduce_concat_impl(
             assert (~to_set[idx]).any() or to_set[idx].nelement() == 0
             to_set[idx] = True
             if is_concat:
-                assert (torch.sort(to_set, descending=True)[0] == to_set).all()
+                # torch.sort on CUDA doesn't support bool
+                to_set_long = to_set.long()
+                assert (torch.sort(to_set_long, descending=True)[0] == to_set_long).all()
         assert to_set.all(), (to_set, to_set.shape)
 
     return [
