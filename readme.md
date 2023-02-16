@@ -4,15 +4,17 @@ Rust_circuit is a library for expressing and manipulating tensor computations fo
 
 Linux and M1 Mac are supported - Windows has not been tested and probably does not work.
 
-This library is mainly intended for REMIX participants and former Redwood staff that want to continue using Circuits outside of Redwood. Other people are welcome to try and use it, but it's likely to be a rough time especially if you don't know Rust.
+This repository is mainly intended for [REMIX](https://www.redwoodresearch.org/remix) participants and former Redwood staff that want to continue using rust_circuit. Other people are welcome to try and use it, but it's likely to be a rough time especially if you don't know Rust.
+
+If you're just getting started with mechanistic interpretability, [Neel Nanda's TransformerLens](https://github.com/neelnanda-io/TransformerLens) may be a gentler introduction.
 
 ## Installation
 
-Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so you won't be able to use that directly - you have to build the Rust code in this repository from source.
+Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so you won't be able to use that directly - you have to build the Rust code in this repository from source. 
 
 ### Building from Source on Linux
 
-- Install `rustup` from [https://rustup.rs](https://rustup.rs) . Do the default installation.
+- Install `rustup` from [https://rustup.rs](https://rustup.rs). Do the default installation.
 - Install `clang`: `sudo apt install clang`
 - Install Miniconda from [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
 - Create a new Python 3.11 environment: `conda create -n circ python=3.11 -y`
@@ -24,7 +26,7 @@ Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so
 
 ### Building from Source on M1 Mac
 
-- Install `rustup` from [https://rustup.rs](https://rustup.rs) . Do the default installation.
+- Install `rustup` from [https://rustup.rs](https://rustup.rs). Do the default installation.
 - Install Miniconda from [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
 - Create a new Python 3.11 environment: `conda create -n circ python=3.11 -y`
 - Activate the environment: `conda activate circ`
@@ -43,7 +45,7 @@ Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so
 
 ## Learning Circuits
 
-The [REMIX curriculum](https://github.com/redwoodresearch/remix_public) is open source and is the best way to learn about how to use this library.
+The [REMIX curriculum](https://github.com/redwoodresearch/remix_public) is open source and is the best way to learn about how to use this library. Participants spent about 6 days of full time work to learn the library; it is extremely powerful and full-featured but also not easy to use.
 
 The next best thing is to [learn the Rust language](https://doc.rust-lang.org/book/) and just read the source code directly. 
 
