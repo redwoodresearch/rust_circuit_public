@@ -1,8 +1,16 @@
 # Rust Circuit
 
-Rust_circuit is a library for expressing and manipulating tensor computations for neural network interpretability, written in Rust and used in Python notebooks. It includes support for causal scrubbing. Linux and M1 Mac are supported.
+Rust_circuit is a library for expressing and manipulating tensor computations for neural network interpretability, written in Rust and used in Python notebooks. It includes support for causal scrubbing. 
 
-## Building from Source on Linux
+Linux and M1 Mac are supported - Windows has not been tested and probably does not work.
+
+This library is mainly intended for REMIX participants and former Redwood staff that want to continue using Circuits outside of Redwood. Other people are welcome to try and use it, but it's likely to be a rough time especially if you don't know Rust.
+
+## Installation
+
+Note: the `pip` version of `rust_circuit` depends on Redwood's internal code, so you won't be able to use that directly - you have to build the Rust code in this repository from source.
+
+### Building from Source on Linux
 
 - Install `rustup` from [https://rustup.rs](https://rustup.rs) . Do the default installation.
 - Install `clang`: `sudo apt install clang`
@@ -14,7 +22,7 @@ Rust_circuit is a library for expressing and manipulating tensor computations fo
 - Build rust_circuit (this will take a few minutes): `maturin develop --features static-z3`
 - Now, in the Python interpreter you should be able to `import rust_circuit`.
 
-## Building from Source on M1 Mac
+### Building from Source on M1 Mac
 
 - Install `rustup` from [https://rustup.rs](https://rustup.rs) . Do the default installation.
 - Install Miniconda from [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
@@ -27,37 +35,39 @@ Rust_circuit is a library for expressing and manipulating tensor computations fo
   - Link the dylib to your system lib path (`sudo ln -s /opt/homebrew/lib/libz3.dylib /usr/local/lib`)
   - Link the headers to your system header path (`sudo ln -s /opt/homebrew/include/z3*.h /usr/local/include`)
 - Build rust_circuit: `maturin develop`
-- Now, `import rust_circuit` should work!
+- Now, in the Python interpreter you should be able to `import rust_circuit`.
 
 ## VS Code Configuration
 
 - I recommend the [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) plugin.
 
-TBD: debugging rust_circuit
+## Learning Circuits
 
-## Getting started
+The [REMIX curriculum](https://github.com/redwoodresearch/remix_public) is open source and is the best way to learn about how to use this library.
 
-Python examples in `python/rust_circuit/demos`.
+The next best thing is to [learn the Rust language](https://doc.rust-lang.org/book/) and just read the source code directly. 
 
-Python library code is in `python/rust_circuit`. Tests are all python, in `python/tests`.
-
-Rust code is in `src/`, as well as the sub-crate folders `rr_util`, `circuit_base`,`circuit_rewrites`,`get_update_node`,`nb_operations`,`tests`, `benches`.
-
-When you run `maturin dev`, the rust code is all compiled into one Python native extension file and saved as `python/rust_circuit/_rust._____.so`. Then approximately `pip install -e python/rust_circuit` is run.
-
-## Misc advice
-
-- You can view Rust docs locally with `cargo doc --open`
-
-## Tracebacks
-
-We filter Rust tracebacks shown to python to get rid of lots of boilerplate, set the env var `PYO3_NO_TRACEBACK_FILTER` to disable.
+Unfortunately, many of the demo notebooks in `python/rust_circuit/demos` and unit tests in `python/tests` don't run without internal Redwood code.
 
 ## Troubleshooting
 
+### Anyhow build error after starting up in rust analyzer
+
+[do what this comment says/read issue more generally](https://github.com/dtolnay/anyhow/issues/250#issuecomment-1209629746)
+
+### Can't find libpython
+
 If you see an error about not being able to find `libpython`, you'll need to find it on your system and then add the containing folder to the `LD_LIBRARY_PATH` environment variable. On my machine, it was in `/home/ubuntu/miniconda3/envs/circ/lib/`. If you don't know where it is, try the [find_libpython](https://pypi.org/project/find-libpython/) tool.
 
-## Optional - Speeding up compilation
+### Debugging Rust code
+
+You can debug into Rust by running the Python interpreter under a debugger of your choice. For example, with LLDB: `lldb -- /path/to/python -c "import rust_circuit"`
+
+Also, you can set the environment variable RUST_BACKTRACE=1 to see more information about errors.
+
+## Optional Info Below - Speeding up compilation
+
+The below is only useful if you're going to be modifying and frequently compiling Circuits.
 
 ### Speeding up maturin
 
@@ -103,11 +113,7 @@ to the binary).
 
 The mold linker is maybe annoying to install on ubuntu, but I (Ryan) had no issues installing on Arch.
 
-## Anyhow build error after starting up in rust analyzer
-
-[do what this comment says/read issue more generally](https://github.com/dtolnay/anyhow/issues/250#issuecomment-1209629746)
-
-## Profiling - the below currently doesn't work
+## Profiling (doesn't work)
 
 To benchmark code, write tests in `benches/benches.rs`, add your new tests to `criterion_group!` inside `benches.rs`, then run `cargo bench --no-default-features`.
 Currently only simp is benchmarked.
@@ -115,3 +121,7 @@ Currently only simp is benchmarked.
 To profile code, use
 `cargo bench --no-default-features  --no-run; flamegraph -o flamegraph.svg --  target/release/deps/benches-36e0a557364e8efa --nocapture`
 or generally cargo bench --no-run then an executable profiler.
+
+## Tracebacks
+
+We filter Rust tracebacks shown to Python to get rid of lots of boilerplate, set the environment variable `PYO3_NO_TRACEBACK_FILTER` to disable.
